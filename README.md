@@ -15,6 +15,7 @@ non-idiomatic things here that I'd be happy to improve.
 
 - [x] Basic support for variants without type parameters
 - [x] Basic support for records-as-objects
+- [x] Support types with parameters
 - [ ] Use the quoter Luke
 - [ ] Support for all base types
 - [ ] Options (in the form of attributes)
@@ -70,7 +71,22 @@ also be prefixed `[@jsont.key ...]` when that compatibility isn't desired.
 
 The deriver follows the usual naming conventions. Types whose name is `t`
 generates a value named `jsont`. Otherwise that value bears the name of the type
-suffixed by `_jsont`. 
+suffixed by `_jsont`.
+
+
+#### Types with parameters
+
+```ocaml
+type 'a t = 'a [@@deriving jsont]
+type u = int list t [@@deriving jsont]
+```
+
+Will generate:
+
+```ocaml
+let jsont jsont_type_var__a = jsont_type_var__a
+let u_jsont = jsont (Jsont.list Jsont.int)
+```
 
 ### Enumerations
 

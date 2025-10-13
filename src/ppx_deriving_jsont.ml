@@ -42,15 +42,37 @@ let jsont_name type_name =
   | "t" -> "jsont"
   | _ -> Printf.sprintf "%s_jsont" type_name
 
+let jsont_type_var label = "jsont_type_var__" ^ label
+
 let jsont_enum ~loc ~kind assoc =
   let open Ast_builder.Default in
   pexp_apply ~loc (evar ~loc "Jsont.enum")
     [ (Labelled "kind", estring ~loc kind); (Nolabel, assoc) ]
 
-let jsont_str_item ~loc ~name expr =
+let jsont_str_item ~loc ~name ~params expr =
   let open Ast_builder.Default in
-  pstr_value ~loc Nonrecursive
-    [ value_binding ~loc ~pat:(pvar ~loc @@ jsont_name name) ~expr ]
+  let expr =
+    match params with
+    | [] -> [%expr [%e expr]]
+    | labels ->
+        List.fold_left
+          (fun acc label ->
+            pexp_fun ~loc:Location.none Nolabel None
+              (ppat_var ~loc:label.loc label)
+              acc)
+          expr (List.rev labels)
+  in
+  let attr =
+    let payload = PStr [%str "-39"] in
+    attribute ~loc ~name:(Loc.make ~loc:Location.none "warning") ~payload
+  in
+  pstr_value ~loc Recursive
+    [
+      {
+        (value_binding ~loc ~pat:(pvar ~loc @@ jsont_name name) ~expr) with
+        pvb_attributes = [ attr ];
+      };
+    ]
 
 let jsont_sig_item ~loc ~name type_ =
   let open Ast_builder.Default in
@@ -81,11 +103,19 @@ let rec of_core_type (core_type : Parsetree.core_type) =
   | [%type: [%t? typ] array] ->
       let jsont = of_core_type typ in
       [%expr Jsont.array [%e jsont]]
-  | { ptyp_desc = Ptyp_constr ({ txt = lid; loc }, _args); _ } ->
-      (* TODO: arguments ? quoting ? *)
-      Exp.ident
-        (Loc.make ~loc
-           (Ppxlib.Expansion_helpers.mangle_lid (Suffix "jsont") lid))
+  | { ptyp_desc = Ptyp_constr ({ txt = lid; loc }, args); _ } -> (
+      (* TODO: quoting ? *)
+      let args = List.map of_core_type args in
+      let expr =
+        Exp.ident
+          (Loc.make ~loc
+             (Ppxlib.Expansion_helpers.mangle_lid (Suffix "jsont") lid))
+      in
+      match args with
+      | [] -> expr
+      | _ -> Exp.apply expr (List.map (fun arg -> (Nolabel, arg)) args))
+  | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
+      Exp.ident (Loc.make ~loc (Lident (jsont_type_var label)))
   | ct ->
       let msg =
         Printf.sprintf "Not implemented: core_type %s"
@@ -116,11 +146,26 @@ let rec of_core_type (core_type : Parsetree.core_type) =
     end
 *)
 let of_type_declaration ~derived_item_loc
-    ({ ptype_name = { txt = type_name; _ }; ptype_kind; ptype_manifest; _ } :
+    ({
+       ptype_name = { txt = type_name; _ };
+       ptype_params;
+       ptype_kind;
+       ptype_manifest;
+       _;
+     } :
       Parsetree.type_declaration) =
   (* TODO it would be better to have the loc of the annotation here *)
   let loc = derived_item_loc in
   let kind = String.capitalize_ascii type_name in
+  let params =
+    List.filter_map
+      (fun (core_type, _) ->
+        match core_type.ptyp_desc with
+        | Ptyp_var label ->
+            Some { txt = jsont_type_var label; loc = core_type.ptyp_loc }
+        | _ -> None)
+      ptype_params
+  in
   match ptype_kind with
   | Ptype_variant constrs ->
       let open Ast_builder.Default in
@@ -134,7 +179,7 @@ let of_type_declaration ~derived_item_loc
           constrs
       in
       [
-        jsont_str_item ~loc ~name:type_name
+        jsont_str_item ~loc ~name:type_name ~params
           (jsont_enum ~loc ~kind (elist ~loc all_constrs));
       ]
   | Ptype_record labels ->
@@ -208,14 +253,14 @@ let of_type_declaration ~derived_item_loc
           labels
       in
       [
-        jsont_str_item ~loc ~name:type_name
+        jsont_str_item ~loc ~name:type_name ~params
           [%expr Jsont.Object.finish [%e mems]];
       ]
   | Ptype_abstract -> (
       match ptype_manifest with
       | Some core_type ->
           let value = of_core_type core_type in
-          [ jsont_str_item ~loc ~name:type_name value ]
+          [ jsont_str_item ~loc ~name:type_name ~params value ]
       | _ -> failwith "Not implemented: abstract types")
   | _ -> []
 
