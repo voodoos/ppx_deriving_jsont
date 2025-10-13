@@ -18,14 +18,15 @@ non-idiomatic things here that I'd be happy to improve.
 - [x] Support types with parameters
 - [ ] Use the quoter Luke
 - [ ] Support for all base types
+- [ ] Ensure locations make sense
 - [ ] Options (in the form of attributes)
     - [ ] for finer support of integers
     - [ ] for finer settings
     - [ ] to provide `doc` comments
-    - [ ] for other kinds of objects mappings (as sets for example) 
-- [ ] Handle some frequent pattern that do not map obvisousy from OCaml to JSON
+    - [ ] for other kinds of objects mappings (as sets for example)
+- [ ] Handle some frequent pattern that do not map directly from OCaml to JSON
   like variants with parameters (Yojson uses arrays).
-- [ ] A2lso generate objects' Paths 
+- [ ] Also generate objects' Paths
 - [ ] Comprehensive testsuite
 
 # [@@deriving jsont]
@@ -100,13 +101,13 @@ let u_jsont = jsont (Jsont.list Jsont.int)
 
 ```ocaml
 type sort = A | X [@key "B"]  | C [@@deriving jsont]
-``` 
+```
 
 Will generate:
 
 ```ocaml
 let sort_jsont = Jsont.enum ~kind:"Sort" [ ("A", A); ("B", X); ("C", C) ]
-``` 
+```
 
 
 ### Records
@@ -128,11 +129,11 @@ technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_reco
 type t = {
     name: string;
     maybe_name: string option; [@option]
-    ids : string list; [@default []] [@omit List.is_empty] 
+    ids : string list; [@default []] [@omit List.is_empty]
     sort : sort; [@key "Sort"]
 }
 [@@deriving jsont]
-``` 
+```
 
 Will generate:
 
@@ -152,6 +153,6 @@ let jsont =
           (Jsont.Object.mem "name" Jsont.string
             ~enc:(fun t -> t.name)
             ?dec_absent:None ?enc_omit:None
-            (Jsont.Object.map ~kind:"T" 
+            (Jsont.Object.map ~kind:"T"
               fun name maybe_name ids sort -> { name; maybe_name; ids; sort })))))
-``` 
+```
