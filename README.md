@@ -16,7 +16,8 @@ non-idiomatic things here that I'd be happy to improve.
 - [x] Basic support for variants without type parameters
 - [x] Basic support for records-as-objects
 - [x] Support types with parameters
-- [ ] Use the quoter Luke
+- [x] Support [recursive types](https://erratique.ch/software/jsont/doc/cookbook.html#recursion)
+- [ ] Support mutually recursive types
 - [ ] Support for all base types
 - [ ] Ensure locations make sense
 - [ ] Options (in the form of attributes)
@@ -75,7 +76,11 @@ generates a value named `jsont`. Otherwise that value bears the name of the type
 suffixed by `_jsont`.
 
 
-#### Types with parameters
+### Types (with parameters)
+
+Just use the `[@@deriving jsont]` attribute.
+
+#### Example
 
 ```ocaml
 type 'a t = 'a [@@deriving jsont]
