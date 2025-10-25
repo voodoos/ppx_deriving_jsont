@@ -171,6 +171,84 @@ let rec of_core_type ~current_decl (core_type : Parsetree.core_type) =
         |> Jsont.Object.finish
     end
 *)
+(* Translates records to javascript objects *)
+let of_record_type ~current_decl ~loc ~kind labels =
+  let open Ast_builder.Default in
+  (* Jsont needs a function to construct the record *)
+  let make_fun =
+    let record =
+      let fields =
+        List.map
+          (fun { pld_name = { txt = name; loc }; _ } ->
+            (Loc.make ~loc @@ lident name, evar ~loc name))
+          labels
+      in
+      pexp_record ~loc fields None
+    in
+    List.fold_left
+      (fun acc { pld_name = { txt = name; loc }; _ } ->
+        pexp_fun ~loc Nolabel None (pvar ~loc name) acc)
+      record (List.rev labels)
+  in
+  let mems, rec_flag =
+    List.fold_left
+      (fun (acc, rec_flag)
+           ({ pld_name = { txt = default; loc = name_loc }; pld_type; _ } as ld)
+         ->
+        let jsont_name =
+          Attribute.get Attributes.ld_key ld |> Option.value ~default
+        in
+        let dec_absent, enc_omit =
+          match Attribute.get Attributes.ld_option ld with
+          | None -> ([%expr None], [%expr None])
+          | Some () -> ([%expr Some None], [%expr Some Option.is_none])
+        in
+        let dec_absent =
+          let absent_or_default =
+            (* These have the same meaning. [default] is handled for
+               compatibility with ppx_yojson_conv *)
+            match Attribute.get Attributes.ld_absent ld with
+            | None -> Attribute.get Attributes.ld_default ld
+            | Some attr -> Some attr
+          in
+          match absent_or_default with
+          | None -> dec_absent
+          | Some e ->
+              let loc = e.pexp_loc in
+              [%expr Some [%e e]]
+        in
+        let enc_omit =
+          match Attribute.get Attributes.ld_omit ld with
+          | None -> enc_omit
+          | Some e ->
+              let loc = e.pexp_loc in
+              [%expr Some [%e e]]
+        in
+        let type_jsont, rec_flag' = of_core_type ~current_decl pld_type in
+        let rec_flag =
+          match (rec_flag, rec_flag') with
+          | Nonrecursive, Nonrecursive -> Nonrecursive
+          | _ -> Recursive
+        in
+        let field_access =
+          let loc = pld_type.ptyp_loc in
+          [%expr
+            fun t ->
+              [%e pexp_field ~loc [%expr t] (Loc.make ~loc @@ lident default)]]
+        in
+        let loc = ld.pld_loc in
+        ( [%expr
+            Jsont.Object.mem
+              [%e estring ~loc:name_loc jsont_name]
+              [%e type_jsont] ~enc:[%e field_access] ?dec_absent:[%e dec_absent]
+              ?enc_omit:[%e enc_omit] [%e acc]],
+          rec_flag ))
+      ( [%expr Jsont.Object.map ~kind:[%e estring ~loc kind] [%e make_fun]],
+        Nonrecursive )
+      labels
+  in
+  ([%expr Jsont.Object.finish [%e mems]], rec_flag)
+
 let of_type_declaration ~derived_item_loc
     ({
        ptype_name = { txt = type_name; _ };
@@ -211,83 +289,8 @@ let of_type_declaration ~derived_item_loc
           (jsont_enum ~loc ~kind (elist ~loc all_constrs));
       ]
   | Ptype_record labels ->
-      (* Translates records to javascript objects *)
-      let open Ast_builder.Default in
-      (* Jsont needs a function to construct the record *)
-      let make_fun =
-        let record =
-          let fields =
-            List.map
-              (fun { pld_name = { txt = name; loc }; _ } ->
-                (Loc.make ~loc @@ lident name, evar ~loc name))
-              labels
-          in
-          pexp_record ~loc fields None
-        in
-        List.fold_left
-          (fun acc { pld_name = { txt = name; loc }; _ } ->
-            pexp_fun ~loc Nolabel None (pvar ~loc name) acc)
-          record (List.rev labels)
-      in
-      let mems, rec_flag =
-        List.fold_left
-          (fun (acc, rec_flag)
-               ({ pld_name = { txt = default; loc = name_loc }; pld_type; _ } as
-                ld) ->
-            let jsont_name =
-              Attribute.get Attributes.ld_key ld |> Option.value ~default
-            in
-            let dec_absent, enc_omit =
-              match Attribute.get Attributes.ld_option ld with
-              | None -> ([%expr None], [%expr None])
-              | Some () -> ([%expr Some None], [%expr Some Option.is_none])
-            in
-            let dec_absent =
-              let absent_or_default =
-                (* These are the same meaning. [default] is handled for
-                   compatibility with ppx_yojson_conv *)
-                match Attribute.get Attributes.ld_absent ld with
-                | None -> Attribute.get Attributes.ld_default ld
-                | Some attr -> Some attr
-              in
-              match absent_or_default with
-              | None -> dec_absent
-              | Some e ->
-                  let loc = e.pexp_loc in
-                  [%expr Some [%e e]]
-            in
-            let enc_omit =
-              match Attribute.get Attributes.ld_omit ld with
-              | None -> enc_omit
-              | Some e ->
-                  let loc = e.pexp_loc in
-                  [%expr Some [%e e]]
-            in
-            let type_jsont, rec_flag' = of_core_type ~current_decl pld_type in
-            let rec_flag =
-              match (rec_flag, rec_flag') with
-              | Nonrecursive, Nonrecursive -> Nonrecursive
-              | _ -> Recursive
-            in
-            let field_access =
-              let loc = pld_type.ptyp_loc in
-              [%expr
-                fun t ->
-                  [%e
-                    pexp_field ~loc [%expr t] (Loc.make ~loc @@ lident default)]]
-            in
-            let loc = ld.pld_loc in
-            ( [%expr
-                Jsont.Object.mem
-                  [%e estring ~loc:name_loc jsont_name]
-                  [%e type_jsont] ~enc:[%e field_access]
-                  ?dec_absent:[%e dec_absent] ?enc_omit:[%e enc_omit] [%e acc]],
-              rec_flag ))
-          ( [%expr Jsont.Object.map ~kind:[%e estring ~loc kind] [%e make_fun]],
-            Nonrecursive )
-          labels
-      in
-      [ jsont_str_item ~rec_flag [%expr Jsont.Object.finish [%e mems]] ]
+      let expr, rec_flag = of_record_type ~current_decl ~loc ~kind labels in
+      [ jsont_str_item ~rec_flag expr ]
   | Ptype_abstract -> (
       match ptype_manifest with
       | Some core_type ->
