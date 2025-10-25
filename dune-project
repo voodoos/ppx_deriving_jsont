@@ -5,11 +5,11 @@
 (source
  (github voodoos/ppx_deriving_jsont))
 
-(license AGPL-3.0)
+(license MIT)
 
 (authors "Ulysse Gérard")
 
-(maintainers "")
+(maintainers "Ulysse Gérard")
 
 (package
  (allow_empty)
