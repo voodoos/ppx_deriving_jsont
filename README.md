@@ -106,7 +106,7 @@ let u_jsont = jsont (Jsont.list Jsont.int)
 ```
 
 ```json
-> [3,6,4,2]
+[3,6,4,2]
 ```
 
 ### Enumerations
@@ -138,7 +138,7 @@ let sort_jsont = Jsont.enum ~kind:"Sort" [ ("A", A); ("B", X); ("C", C) ]
 ```
 
 ```json
-> ["A","B","C"]
+["A","B","C"]
 ```
 
 ### Generic variants
@@ -170,7 +170,7 @@ type v = A of int [@key "Id"] | S of sort [@@deriving jsont]
 ```
 
 ```json
-> [{"type":"S","v":"B"},{"type":"Id","v":42}]
+[{"type":"S","v":"B"},{"type":"Id","v":42}]
 ```
 
 ### Records
@@ -244,7 +244,7 @@ let jsont =
 ```
 
 ```json
-> {
+{
     "name":"Alice",
     "maybe_parent":
       {"name":"Bob", "ids":["X"], "Sort":"B"},
