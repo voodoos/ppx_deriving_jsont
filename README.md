@@ -2,8 +2,8 @@
 
 `ppx_deriving_jsont` is a [PPX deriver](https://ocaml-ppx.github.io/ppxlib/ppxlib/driver.html#def_derivers) that generates
 [Jsont](https://erratique.ch/software/jsont) descriptions of OCaml types. Jsont
-allows for a lot of flexibility and precision when writing mappings between
-OCaml values and JSON: this PPX does not purposes to be a completely automatic
+allows for a lot more flexibility and precision when writing mappings between
+OCaml values and JSON. This PPX does not purposes to be a completely automatic
 replacement for manual bindings but rather a tool to help generate tedious parts
 of the bindings that can be mix-and-matched with carefully user-written
 descriptions when that is necessary.
@@ -61,7 +61,7 @@ library (or executable), one should add a dependency to `jsont` and use the
 ```sexp
 (library
  ...
- (libraries  jsont ...)
+ (libraries jsont ...)
  (preprocess (pps ppx_deriving_jsont)))
 ```
 
@@ -78,8 +78,6 @@ also be prefixed `[@jsont.key ...]` when that compatibility isn't desired.
 The deriver follows the usual naming conventions. Types whose name is `t`
 generates a value named `jsont`. Otherwise that value bears the name of the type
 suffixed by `_jsont`.
-
-
 
 ### Basic types (with parameters)
 
@@ -120,7 +118,7 @@ let u_jsont = jsont (Jsont.list Jsont.int)
 #### Example
 
 ```ocaml
-type sort = A | X [@key "B"]  | C [@@deriving jsont]
+type sort = A | X [@key "B"] | C [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary>
@@ -151,7 +149,6 @@ let sort_jsont = Jsont.enum ~kind:"Sort" [ ("A", A); ("B", X); ("C", C) ]
 
 ```ocaml
 type v = A of int [@key "Id"] | S of sort [@@deriving jsont]
-
 ```
 
 <details><summary>See generated code</summary>
@@ -175,7 +172,7 @@ type v = A of int [@key "Id"] | S of sort [@@deriving jsont]
 
 ### Records
 
-Records are mapped using the  ["objects-as-records"
+Records are mapped using the ["objects-as-records"
 technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_records).
 
 #### Attributes
@@ -245,9 +242,9 @@ let jsont =
 
 ```json
 {
-    "name":"Alice",
-    "maybe_parent":
-      {"name":"Bob", "ids":["X"], "Sort":"B"},
-    "Sort":"A"
-  }
+  "name":"Alice",
+  "maybe_parent":
+    {"name":"Bob", "ids":["X"], "Sort":"B"},
+  "Sort":"A"
+}
 ```
