@@ -145,7 +145,7 @@ let rec of_core_type ~current_decl (core_type : Parsetree.core_type) =
         Nonrecursive )
   | ct ->
       let msg =
-        Printf.sprintf "Not implemented: core_type %s"
+        Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
           (Ppxlib.string_of_core_type ct)
       in
       failwith msg
@@ -307,7 +307,7 @@ let of_type_declaration ~derived_item_loc
               | Pcstr_tuple [] -> ([%expr Jsont.null ()], Nonrecursive)
               | Pcstr_tuple (first :: _) -> of_core_type ~current_decl first
               | Pcstr_record _labels ->
-                  failwith "not implemented: inline_records"
+                  failwith "ppx_deriving_jsont: not implemented: inline_records"
             in
             let rec_flag =
               match (rec_flag, rec_flag') with
@@ -386,7 +386,7 @@ let of_type_declaration ~derived_item_loc
       | Some core_type ->
           let value, rec_flag = of_core_type ~current_decl core_type in
           [ jsont_str_item ~rec_flag value ]
-      | _ -> failwith "Not implemented: abstract types")
+      | _ -> failwith "ppx_deriving_jsont: not implemented: abstract types")
   | _ -> []
 
 let sig_of_type_decl ~derived_item_loc
