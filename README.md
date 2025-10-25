@@ -1,44 +1,45 @@
-# 🚧🚧 Work in progress
+# [@@deriving jsont]
 
-This a very early take on writing a deriver for
-[Jsont](https://erratique.ch/software/jsont) that only support a very restricted
-subset of features. It can already be used to skip tedious mechanical work like
-describing large records and lists of variants, but it does not do justice to
-Jsont's fine control and flexibily over the resulting mappings (like choosing
-the way integers are mapped).
+`ppx_deriving_jsont` is a [PPX deriver](https://ocaml-ppx.github.io/ppxlib/ppxlib/driver.html#def_derivers) that generates
+[Jsont](https://erratique.ch/software/jsont) descriptions of OCaml types. Jsont
+allows for a lot of flexibility and precision when writing mappings between
+OCaml values and JSON: this PPX does not purposes to be a completely automatic
+replacement for manual bindings but rather a tool to help generate tedious parts
+of the bindings that can be mix-and-matched with carefully user-written
+descriptions when that is necessary.
 
-Any kind of contribution (bug-report, PR, suggestions) is welcomed! It's missing
-a lot of features and I am in no way a PPX expert, so there might be a lot of
-non-idiomatic things here that I'd be happy to improve.
+## 🚧🚧 Work in progress
+
+This an early take on writing a deriver for
+[Jsont](https://erratique.ch/software/jsont). It can already be used to skip
+tedious mechanical work like describing large records and lists of variants, but
+it does not do justice to Jsont's fine control and flexibily over the resulting
+mappings (like choosing the way integers are mapped).
+
+Any kind of contribution (bug-report, PR, suggestions) is welcomed! I am in no
+way a PPX expert, so there might be a lot of non-idiomatic things here that I'd
+be happy to improve.
 
 ## Todo / Roadmap / Wishlist
 
-- [x] Basic support for variants without type parameters
-- [x] Basic support for records-as-objects
-- [x] Support types with parameters
-- [x] Support [recursive types](https://erratique.ch/software/jsont/doc/cookbook.html#recursion)
-- [ ] Support mutually recursive types
-- [ ] Support for all base types
-- [ ] Ensure locations make sense
+- [x] Variants without type parameters (enum)
+- [x] Variants with one type parameter
+- [ ] Tuples
+- [ ] Variants with more than one type parameter (using tuples)
+- [ ] Inline records
+- [x] Records-as-objects
+- [x] Types with parameters
+- [x] [Recursive types](https://erratique.ch/software/jsont/doc/cookbook.html#recursion)
+- [ ] Mutually recursive types
+- [ ] Support for all meaningful base types
 - [ ] Options (in the form of attributes)
     - [ ] for finer support of integers
     - [ ] for finer settings
     - [ ] to provide `doc` comments
     - [ ] for other kinds of objects mappings (as sets for example)
-- [ ] Handle some frequent pattern that do not map directly from OCaml to JSON
-  like variants with parameters (Yojson uses arrays).
-- [ ] Also generate objects' Paths
-- [ ] Comprehensive testsuite
-
-# [@@deriving jsont]
-
-`ppx_deriving_jsont` is a deriver that generates
-[Jsont](https://erratique.ch/software/jsont) descriptions of OCaml values. Jsont
-allows for a lot of flexibility and precision when writing mappings between
-OCaml values and JSON: this PPX does purpots to be a completely automatic
-replacement for manual bindings but rather a tool to help generate tedious parts
-of the bindings that can be mix-and-matched with carefully user-written
-descriptions when that is necessary.
+- [ ] Also generate objects' Paths (lenses ?)
+- [ ] Ensure locations make sense
+- [ ] Comprehensive test-suite
 
 ## Installation
 
@@ -66,9 +67,12 @@ library (or executable), one should add a dependency to `jsont` and use the
 
 ## Usage
 
+Generation is enabled adding the `[@@deriving jsont]` attribute to type
+declarations.
+
 Generation can be tuned with the use of attributes like `[@key "Key"]` that are
 often compatible with other derivers such as
-[`ppx_yojon_conv`](https://github.com/janestreet/ppx_yojson_conv). These can
+[`ppx_yojson_conv`](https://github.com/janestreet/ppx_yojson_conv). These can
 also be prefixed `[@jsont.key ...]` when that compatibility isn't desired.
 
 The deriver follows the usual naming conventions. Types whose name is `t`
@@ -76,9 +80,8 @@ generates a value named `jsont`. Otherwise that value bears the name of the type
 suffixed by `_jsont`.
 
 
-### Types (with parameters)
 
-Just use the `[@@deriving jsont]` attribute.
+### Basic types (with parameters)
 
 #### Example
 
@@ -87,16 +90,28 @@ type 'a t = 'a [@@deriving jsont]
 type u = int list t [@@deriving jsont]
 ```
 
-Will generate:
+<details><summary>See generated code</summary></h3>
 
 ```ocaml
 let jsont jsont_type_var__a = jsont_type_var__a
 let u_jsont = jsont (Jsont.list Jsont.int)
 ```
 
+</details>
+
+#### Json output:
+
+```ocaml
+# Jsont_bytesrw.encode_string u_jsont [3; 6; 4; 2];;
+```
+
+```json
+> [3,6,4,2]
+```
+
 ### Enumerations
 
-⚠️ Only constructors without type parameters are allowed.
+⚠️ Only variants whose constructors have no type parameters are translated as enumerations.
 
 #### Attributes
 - `@key <string>` specifies the JSON name (otherwise the same as the
@@ -108,12 +123,55 @@ let u_jsont = jsont (Jsont.list Jsont.int)
 type sort = A | X [@key "B"]  | C [@@deriving jsont]
 ```
 
-Will generate:
+<details><summary>See generated code</summary>
 
 ```ocaml
 let sort_jsont = Jsont.enum ~kind:"Sort" [ ("A", A); ("B", X); ("C", C) ]
 ```
 
+</details>
+
+#### Json output:
+
+```ocaml
+# Jsont_bytesrw.encode_string (Jsont.list u_jsont) [ A; X; C ];;
+```
+
+```json
+> ["A","B","C"]
+```
+
+### Generic variants
+
+#### Attributes
+- `@key <string>` specifies the JSON name (otherwise the same as the
+  constructor itself)
+
+#### Example
+
+```ocaml
+type v = A of int [@key "Id"] | S of sort [@@deriving jsont]
+
+```
+
+<details><summary>See generated code</summary>
+
+```ocaml
+
+
+```
+
+</details>
+
+#### Json output:
+
+```ocaml
+# Jsont_bytesrw.encode_string (Jsont.list v_jsont) [ S X; A 42 ];;
+```
+
+```json
+> [{"type":"S","v":"B"},{"type":"Id","v":42}]
+```
 
 ### Records
 
@@ -132,32 +190,64 @@ technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_reco
 
 ```ocaml
 type t = {
-    name: string;
-    maybe_name: string option; [@option]
-    ids : string list; [@default []] [@omit List.is_empty]
-    sort : sort; [@key "Sort"]
+  name : string;
+  maybe_parent : t option; [@option]
+  ids : string list; [@default []] [@omit List.is_empty]
+  sort : sort; [@key "Sort"]
 }
 [@@deriving jsont]
 ```
 
-Will generate:
+<details><summary>See generated code</summary>
 
 ```ocaml
 let jsont =
-  Jsont.Object.finish
-    (Jsont.Object.mem "Sort" sort_jsont
-      ~enc:(fun t -> t.sort)
-      ?dec_absent:None ?enc_omit:None
-      (Jsont.Object.mem "ids" (Jsont.list Jsont.string)
-        ~enc:(fun t -> t.ids)
-        ?dec_absent:(Some []) ?enc_omit:(Some List.is_empty)
-        (Jsont.Object.mem "maybe_name"
-          (Jsont.option Jsont.string)
-          ~enc:(fun t -> t.maybe_name)
-          ?dec_absent:(Some None) ?enc_omit:(Some Option.is_none)
-          (Jsont.Object.mem "name" Jsont.string
-            ~enc:(fun t -> t.name)
+  let rec jsont_rec__t =
+    lazy
+      (Jsont.Object.finish
+         (Jsont.Object.mem "Sort" sort_jsont
+            ~enc:(fun t -> t.sort)
             ?dec_absent:None ?enc_omit:None
-            (Jsont.Object.map ~kind:"T"
-              fun name maybe_name ids sort -> { name; maybe_name; ids; sort })))))
+            (Jsont.Object.mem "ids" (Jsont.list Jsont.string)
+               ~enc:(fun t -> t.ids)
+               ?dec_absent:(Some []) ?enc_omit:(Some List.is_empty)
+               (Jsont.Object.mem "maybe_parent"
+                  (Jsont.option (Jsont.rec' jsont_rec__t))
+                  ~enc:(fun t -> t.maybe_parent)
+                  ?dec_absent:(Some None) ?enc_omit:(Some Option.is_none)
+                  (Jsont.Object.mem "name" Jsont.string
+                     ~enc:(fun t -> t.name)
+                     ?dec_absent:None ?enc_omit:None
+                     (Jsont.Object.map ~kind:"T"
+                        (fun name maybe_parent ids sort ->
+                          { name; maybe_parent; ids; sort })))))))
+  in
+  Lazy.force jsont_rec__t
+```
+
+</details>
+
+#### Json output:
+
+```ocaml
+# Jsont_bytesrw.encode_string (Jsont.list u_jsont)
+       {
+         name = "Alice";
+         maybe_parent = Some {
+            name = "Bob";
+            maybe_parent = None;
+            ids = [ "X" ];
+            sort = X };
+         ids = [];
+         sort = A;
+       };;
+```
+
+```json
+> {
+    "name":"Alice",
+    "maybe_parent":
+      {"name":"Bob", "ids":["X"], "Sort":"B"},
+    "Sort":"A"
+  }
 ```
