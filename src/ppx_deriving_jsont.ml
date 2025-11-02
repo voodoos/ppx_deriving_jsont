@@ -109,6 +109,7 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
         Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
           (Ppxlib.string_of_core_type ct)
       in
+      (* TODO better ppx error handling *)
       failwith msg
 
 (* Example from Jsont documentation:
