@@ -12,11 +12,11 @@ type decl_infos = {
   self_rec : bool;
 }
 
-let pp_decl_infos fmt { type_name; requires; _ } =
+let pp_decl_infos fmt { type_name; requires; self_rec; _ } =
   let pp_sep fmt () = Format.fprintf fmt ";@ " in
-  Format.fprintf fmt "%S requires [%a]" type_name.txt
+  Format.fprintf fmt "%S requires [%a] (self_rec = %b)" type_name.txt
     (Format.pp_print_seq ~pp_sep Format.pp_print_string)
-    (Set.to_seq requires)
+    (Set.to_seq requires) self_rec
 
 let rec usages_of ~decls ~(in_type : Parsetree.core_type) (acc : Set.t) =
   let usages_of acc in_type = usages_of ~decls ~in_type acc in
@@ -38,7 +38,11 @@ let rec usages_of ~decls ~(in_type : Parsetree.core_type) (acc : Set.t) =
   | { ptyp_desc = Ptyp_constr ({ txt = lid; _ }, args); _ } ->
       let acc =
         match lid with
-        | Lident name when Map.mem name decls -> Set.add name acc
+        | Lident name
+          when Format.eprintf "Finding %s\n%!" name;
+               Map.mem name decls ->
+            Format.eprintf "Found %s" name;
+            Set.add name acc
         | _ -> acc
       in
       List.fold_left usages_of acc args
@@ -56,7 +60,10 @@ let usages_in_record_of ~decls labels acc =
 
 let usages_of ~decls ~(in_type_decl : Parsetree.type_declaration) =
   let usages_of acc in_type = usages_of ~decls ~in_type acc in
-  let acc = Set.empty in
+  let acc =
+    Option.fold ~none:Set.empty ~some:(usages_of Set.empty)
+      in_type_decl.ptype_manifest
+  in
   match in_type_decl.ptype_kind with
   | Ptype_variant constrs ->
       List.fold_left

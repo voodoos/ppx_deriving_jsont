@@ -88,7 +88,7 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       let args = List.map of_core_type args in
       let expr =
         if is_rec then
-          let name = jsont_rec_value (Longident.name lid) in
+          let name = jsont_name (Longident.name lid) in
           [%expr Jsont.rec' [%e Exp.ident (Loc.make ~loc (Lident name))]]
         else
           Exp.ident
@@ -327,48 +327,17 @@ let of_type_declaration ~derived_item_loc ~current_decls
   in
   { infos; jsont_expr }
 
-let jsont_value_binding ~loc decls =
+let jsont_value_binding ~loc (decls : decl Map.t) =
   let open Ast_builder.Default in
-  let is_self_rec decl =
-    let rec aux decl ~already_checked requires =
-      Printf.eprintf "Is %S rec in (%s) ?\n%!" decl.type_name.txt
-        (String.concat ";" (Set.to_list requires));
-      if Set.mem decl.type_name.txt requires then (
-        Printf.eprintf "%S is rec !\n%!" decl.type_name.txt;
-        true)
-      else
-        (* This could be made more efficient if required *)
-        Set.find_first_opt
-          (fun required_decl_name ->
-            Printf.eprintf "Checking %S rec ?\n%!" required_decl_name;
-            if Set.mem required_decl_name already_checked then false
-            else
-              let required_decl =
-                List.find
-                  (fun { type_name = { txt = name; _ }; _ } ->
-                    String.equal name required_decl_name)
-                  decls
-              in
-              let already_checked =
-                Set.add required_decl_name already_checked
-              in
-              Printf.eprintf "Go aux ! (%S)\n%!" required_decl_name;
-              aux decl ~already_checked required_decl.requires)
-          requires
-        |> Option.fold ~none:false ~some:(fun _ -> true)
-    in
-    aux decl ~already_checked:Set.empty decl.requires
-  in
   (* TODO special case for when there is only one binding *)
   let expr =
     let bindings, values =
       List.map
-        (fun decl ->
-          let is_self_rec = is_self_rec decl in
-          let txt = jsont_rec_value decl.type_name.txt in
-          let pat = ppat_var ~loc { decl.type_name with txt } in
+        (fun (_, decl) ->
+          let txt = jsont_name decl.infos.type_name.txt in
+          let pat = ppat_var ~loc { decl.infos.type_name with txt } in
           let expr =
-            if is_self_rec then [%expr lazy [%e decl.jsont_expr]]
+            if decl.infos.self_rec then [%expr lazy [%e decl.jsont_expr]]
             else decl.jsont_expr
           in
           let expr =
@@ -378,23 +347,25 @@ let jsont_value_binding ~loc decls =
                   (ppat_var ~loc:label.loc label)
                   acc)
               expr
-              (List.rev decl.type_params)
+              (List.rev decl.infos.type_params)
           in
           let value =
             let ident =
-              pexp_ident ~loc { decl.type_name with txt = Lident txt }
+              pexp_ident ~loc { decl.infos.type_name with txt = Lident txt }
             in
-            if is_self_rec then [%expr Lazy.force [%e ident]] else ident
+            if decl.infos.self_rec then [%expr Lazy.force [%e ident]] else ident
           in
           (value_binding ~loc ~pat ~expr, value))
-        decls
+        (Map.to_list decls)
       |> List.split
     in
     let rec_flag =
       (* Are some of these declaration cross-references ?
          Note: this is weaker than being mutually recursive *)
       let is_rec =
-        List.exists (fun { requires; _ } -> not (Set.is_empty requires)) decls
+        Map.exists
+          (fun _ { infos = { requires; _ }; _ } -> not (Set.is_empty requires))
+          decls
       in
       if is_rec then Recursive else Nonrecursive
     in
@@ -403,14 +374,21 @@ let jsont_value_binding ~loc decls =
   let names =
     ppat_tuple ~loc
     @@ List.map
-         (fun { type_name; _ } -> pvar ~loc (jsont_name type_name.txt))
-         decls
+         (fun (_, { infos = { type_name; _ }; _ }) ->
+           pvar ~loc (jsont_name type_name.txt))
+         (Map.to_list decls)
   in
   value_binding ~loc ~pat:names ~expr
 
 let of_type_declarations ~derived_item_loc _rec_flag tds =
   let open Ast_builder.Default in
   let current_decls = decl_infos tds in
+  let () =
+    if true then
+      Map.iter
+        (fun _ infos -> Format.eprintf "%a\n%!" pp_decl_infos infos)
+        current_decls
+  in
   let decls =
     Map.map (of_type_declaration ~derived_item_loc ~current_decls) current_decls
   in
