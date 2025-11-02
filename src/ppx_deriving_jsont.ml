@@ -379,13 +379,42 @@ let of_type_declaration ~derived_item_loc ~current_decls _rec_flag
 
 let jsont_value_binding ~loc decls =
   let open Ast_builder.Default in
+  let is_rec decl =
+    let rec aux decl ~already_checked requires =
+      if Set.mem decl.type_name.txt requires then true
+      else
+        (* This could be made more efficient if required *)
+        Set.find_first_opt
+          (fun required_decl_name ->
+            if Set.mem required_decl_name already_checked then false
+            else
+              let required_decl =
+                List.find
+                  (fun { type_name = { txt = name; _ }; _ } ->
+                    String.equal name required_decl_name)
+                  decls
+              in
+              let already_checked =
+                Set.add required_decl_name already_checked
+              in
+              aux decl ~already_checked required_decl.requires)
+          requires
+        |> Option.fold ~none:false ~some:(fun _ -> true)
+    in
+    aux decl ~already_checked:Set.empty decl.requires
+  in
+  (* TODO special case for when there is only one binding *)
   let expr =
-    let lazy_bindings, values =
+    let maybe_lazy_bindings, values =
       List.map
         (fun decl ->
+          let is_rec = is_rec decl in
           let txt = jsont_rec_value decl.type_name.txt in
           let pat = ppat_var ~loc { decl.type_name with txt } in
-          let expr = [%expr lazy [%e decl.jsont_expr]] in
+          let expr =
+            if is_rec then [%expr lazy [%e decl.jsont_expr]]
+            else decl.jsont_expr
+          in
           let expr =
             List.fold_left
               (fun acc label ->
@@ -396,15 +425,18 @@ let jsont_value_binding ~loc decls =
               (List.rev decl.type_params)
           in
           let value =
-            [%expr
-              Lazy.force
-                [%e pexp_ident ~loc { decl.type_name with txt = Lident txt }]]
+            let ident =
+              pexp_ident ~loc { decl.type_name with txt = Lident txt }
+            in
+            if is_rec then [%expr Lazy.force [%e ident]] else ident
           in
-          (value_binding ~loc ~pat ~expr, value))
+          ((is_rec, value_binding ~loc ~pat ~expr), value))
         decls
       |> List.split
     in
-    pexp_let ~loc Recursive lazy_bindings (pexp_tuple ~loc values)
+    let is_recs, bindings = List.split maybe_lazy_bindings in
+    let rec_flag = if List.mem true is_recs then Recursive else Nonrecursive in
+    pexp_let ~loc rec_flag bindings (pexp_tuple ~loc values)
   in
   let names =
     ppat_tuple ~loc
