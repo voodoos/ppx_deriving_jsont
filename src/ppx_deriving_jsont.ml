@@ -384,7 +384,7 @@ let of_type_declarations ~derived_item_loc _rec_flag tds =
   let open Ast_builder.Default in
   let current_decls = decl_infos tds in
   let () =
-    if true then
+    if debug then
       Map.iter
         (fun _ infos -> Format.eprintf "%a\n%!" pp_decl_infos infos)
         current_decls

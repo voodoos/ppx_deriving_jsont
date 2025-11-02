@@ -4,6 +4,8 @@ open Names
 module Set = Set.Make (String)
 module Map = Map.Make (String)
 
+let debug = true
+
 type decl_infos = {
   ast : type_declaration;
   type_name : string with_loc;
@@ -38,11 +40,7 @@ let rec usages_of ~decls ~(in_type : Parsetree.core_type) (acc : Set.t) =
   | { ptyp_desc = Ptyp_constr ({ txt = lid; _ }, args); _ } ->
       let acc =
         match lid with
-        | Lident name
-          when Format.eprintf "Finding %s\n%!" name;
-               Map.mem name decls ->
-            Format.eprintf "Found %s" name;
-            Set.add name acc
+        | Lident name when Map.mem name decls -> Set.add name acc
         | _ -> acc
       in
       List.fold_left usages_of acc args
@@ -77,21 +75,15 @@ let usages_of ~decls ~(in_type_decl : Parsetree.type_declaration) =
 
 let is_self_rec ~decls decl_name decl_requires =
   let rec aux decl_name ~already_checked requires =
-    Printf.eprintf "Is %S rec in (%s) ?\n%!" decl_name
-      (String.concat ";" (Set.to_list requires));
-    if Set.mem decl_name requires then (
-      Printf.eprintf "%S is rec !\n%!" decl_name;
-      true)
+    if Set.mem decl_name requires then true
     else
       (* This could be made more efficient if required *)
       Set.find_first_opt
         (fun required_decl_name ->
-          Printf.eprintf "Checking %S rec ?\n%!" required_decl_name;
           if Set.mem required_decl_name already_checked then false
           else
             let _, _, _, requires = Map.find required_decl_name decls in
             let already_checked = Set.add required_decl_name already_checked in
-            Printf.eprintf "Go aux ! (%S)\n%!" required_decl_name;
             aux decl_name ~already_checked requires)
         requires
       |> Option.fold ~none:false ~some:(fun _ -> true)
