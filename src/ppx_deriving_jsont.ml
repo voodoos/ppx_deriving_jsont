@@ -378,7 +378,12 @@ let jsont_value_binding ~loc (decls : decl Map.t) =
     in
     let rec_flag =
       (* Are some of these declaration cross-references ?
-         Note: this is weaker than being mutually recursive *)
+         Note: this is weaker than being mutually recursive.
+
+         And broken in some not-really recursive cases:
+         let rec t = u and u = 4;;
+         Error: This kind of expression is not allowed as
+         right-hand side of let rec*)
       let is_rec =
         Map.exists
           (fun _ { infos = { requires; _ }; _ } -> not (Set.is_empty requires))
