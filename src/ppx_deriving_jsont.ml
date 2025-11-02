@@ -241,28 +241,35 @@ let of_type_declaration ~derived_item_loc ~current_decls
               in
               let arg =
                 match pcd_args with
-                | Pcstr_tuple [] -> [%expr Jsont.null ()]
-                | Pcstr_tuple (first :: _) -> of_core_type ~current_decls first
+                | Pcstr_tuple [] -> `No_arg
+                | Pcstr_tuple [ first ] ->
+                    `Should_wrap (of_core_type ~current_decls first)
+                | Pcstr_tuple (_ :: _) ->
+                    failwith "ppx_deriving_jsont: not implemented: tuples"
                 | Pcstr_record _labels ->
                     failwith
                       "ppx_deriving_jsont: not implemented: inline_records"
               in
               let wrapped_arg =
-                let kind =
-                  estring ~loc:pcd_name.loc (pcd_name.txt ^ "__wrapper")
-                in
-                if pcd_args = Pcstr_tuple [] then [%expr Jsont.Object.zero]
-                else
-                  [%expr
-                    Jsont.Object.map ~kind:[%e kind] Fun.id
-                    |> Jsont.Object.mem "v" [%e arg] ~enc:Fun.id
-                    |> Jsont.Object.finish]
+                (* There is no need to wrap when there is no argument *)
+                (* TODO We could also detect when the argument is a record and
+                   inline it *)
+                match arg with
+                | `No_arg -> [%expr Jsont.Object.zero]
+                | `Should_wrap arg ->
+                    let kind =
+                      estring ~loc:pcd_name.loc (pcd_name.txt ^ "__wrapper")
+                    in
+                    [%expr
+                      Jsont.Object.map ~kind:[%e kind] Fun.id
+                      |> Jsont.Object.mem "v" [%e arg] ~enc:Fun.id
+                      |> Jsont.Object.finish]
               in
               let mk_fun =
                 (* fun arg -> Circle arg *)
                 let loc = pcd_name.loc in
                 let pat, var =
-                  if pcd_args = Pcstr_tuple [] then (punit ~loc, None)
+                  if arg = `No_arg then (punit ~loc, None)
                   else
                     let arg_name = "arg" in
                     (pvar ~loc arg_name, Some (evar ~loc arg_name))
