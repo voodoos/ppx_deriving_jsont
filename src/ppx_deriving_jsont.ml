@@ -1,7 +1,7 @@
 open Ppxlib
 open! Ast_helper
-module Map = Map.Make (String)
-module Set = Set.Make (String)
+open Analysis
+open Names
 
 module Attributes = struct
   let key ctx =
@@ -39,24 +39,11 @@ end
 
 let deriver = "jsont"
 
-module Name = struct
-  type t = string
-
-  let of_type_name s : t = s
-
-  let decl (t : t) =
-    match t with "t" -> "jsont" | _ -> Printf.sprintf "%s_jsont" t
-
-  let rec_decl (t : t) =
-    match t with "t" -> "jsont" | _ -> Printf.sprintf "%s_jsont" t
-end
-
 let jsont_name type_name =
   match type_name with
   | "t" -> "jsont"
   | _ -> Printf.sprintf "%s_jsont" type_name
 
-let jsont_type_var label = "_jsont_type_var__" ^ label
 let jsont_rec_value label = "jsont_rec__" ^ label
 
 let jsont_enum ~loc ~kind assoc =
@@ -460,6 +447,7 @@ let jsont_value_binding ~loc decls =
 
 let of_type_declarations ~derived_item_loc rec_flag tds =
   let open Ast_builder.Default in
+  let _ = decl_infos tds in
   let names =
     List.map
       (fun { ptype_name = { txt = type_name; _ }; _ } -> jsont_name type_name)
