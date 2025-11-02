@@ -1,4 +1,4 @@
 ["A","B","C"]
 {"name":"A","next":{"name":"B","next":null}}
-[{"type":"V","v":4},{"type":"U","v":{"name":"A","next":null}},{"type":"Empty"}]
+[{"type":"V","v":4},{"type":"U","v":{"name":"A","next":null}},{"type":"R","arg":true},{"type":"Empty"}]
 {"v":{"type":"D","v":{"name":"d","v":{"type":"Empty"}}}}

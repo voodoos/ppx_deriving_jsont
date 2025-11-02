@@ -135,7 +135,7 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
     end
 *)
 (* Translates records to javascript objects *)
-let of_record_type ~current_decls ~loc ~kind labels =
+let of_record_type ~current_decls ~loc ~kind ?inlined_constr labels =
   let open Ast_builder.Default in
   (* Jsont needs a function to construct the record *)
   let make_fun =
@@ -148,10 +148,15 @@ let of_record_type ~current_decls ~loc ~kind labels =
       in
       pexp_record ~loc fields None
     in
+    let wrapped_record =
+      match inlined_constr with
+      | None -> record
+      | Some lid -> pexp_construct ~loc:lid.loc lid (Some record)
+    in
     List.fold_left
       (fun acc { pld_name = { txt = name; loc }; _ } ->
         pexp_fun ~loc Nolabel None (pvar ~loc name) acc)
-      record (List.rev labels)
+      wrapped_record (List.rev labels)
   in
   let mems =
     List.fold_left
@@ -190,9 +195,28 @@ let of_record_type ~current_decls ~loc ~kind labels =
         let type_jsont = of_core_type ~current_decls pld_type in
         let field_access =
           let loc = pld_type.ptyp_loc in
-          [%expr
-            fun t ->
-              [%e pexp_field ~loc [%expr t] (Loc.make ~loc @@ lident default)]]
+          let arg =
+            let var_t = ppat_var ~loc { txt = "t"; loc } in
+            match inlined_constr with
+            | None -> var_t
+            | Some cstr -> ppat_construct ~loc cstr (Some var_t)
+          in
+          let pexp_attributes =
+            match inlined_constr with
+            | None -> []
+            | Some _ ->
+                let name = { txt = "ocaml.warning"; loc } in
+                let payload = PStr [ pstr_eval ~loc (estring ~loc "-8") [] ] in
+                [ attribute ~loc ~name ~payload ]
+          in
+          {
+            ([%expr
+               fun [%p arg] ->
+                 [%e
+                   pexp_field ~loc [%expr t] (Loc.make ~loc @@ lident default)]])
+            with
+            pexp_attributes;
+          }
         in
         let loc = ld.pld_loc in
         [%expr
@@ -246,9 +270,17 @@ let of_type_declaration ~derived_item_loc ~current_decls
                     `Should_wrap (of_core_type ~current_decls first)
                 | Pcstr_tuple (_ :: _) ->
                     failwith "ppx_deriving_jsont: not implemented: tuples"
-                | Pcstr_record _labels ->
-                    failwith
-                      "ppx_deriving_jsont: not implemented: inline_records"
+                | Pcstr_record labels ->
+                    (* Inlined record are tricky because they need to be kept
+                       under their type constructor at any time. *)
+                    let inlined_constr =
+                      { pcd_name with txt = Lident pcd_name.txt }
+                    in
+                    `Inline_record
+                      (of_record_type ~current_decls ~loc ~kind ~inlined_constr
+                         labels)
+                (* failwith
+                      "ppx_deriving_jsont: not implemented: inline_records" *)
               in
               let wrapped_arg =
                 (* There is no need to wrap when there is no argument *)
@@ -256,6 +288,7 @@ let of_type_declaration ~derived_item_loc ~current_decls
                    inline it *)
                 match arg with
                 | `No_arg -> [%expr Jsont.Object.zero]
+                | `Inline_record arg -> arg
                 | `Should_wrap arg ->
                     let kind =
                       estring ~loc:pcd_name.loc (pcd_name.txt ^ "__wrapper")
@@ -274,7 +307,9 @@ let of_type_declaration ~derived_item_loc ~current_decls
                     let arg_name = "arg" in
                     (pvar ~loc arg_name, Some (evar ~loc arg_name))
                 in
-                pexp_fun ~loc Nolabel None pat (econstruct cd var)
+                match arg with
+                | `Inline_record _ -> [%expr Fun.id]
+                | _ -> pexp_fun ~loc Nolabel None pat (econstruct cd var)
               in
               let result =
                 (* Jsont.Object.Case.map "Circle" Circle.jsont ~dec:circle *)
@@ -303,10 +338,19 @@ let of_type_declaration ~derived_item_loc ~current_decls
                    if cd.pcd_args = Pcstr_tuple [] then (None, eunit ~loc)
                    else (Some (pvar ~loc "t"), evar ~loc "t")
                  in
+                 let wrapped_var =
+                   match cd.pcd_args with
+                   | Pcstr_record _ ->
+                       let lid =
+                         { cd.pcd_name with txt = Lident cd.pcd_name.txt }
+                       in
+                       pexp_construct ~loc:lid.loc lid (Some var)
+                   | _ -> var
+                 in
                  let rhs =
                    [%expr
                      Jsont.Object.Case.value [%e evar ~loc binding_name]
-                       [%e var]]
+                       [%e wrapped_var]]
                  in
                  case ~lhs:(pconstruct cd pat) ~guard:None ~rhs)
                constrs
