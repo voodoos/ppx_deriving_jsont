@@ -4,7 +4,7 @@ open Names
 module Set = Set.Make (String)
 module Map = Map.Make (String)
 
-let debug = true
+let debug = false
 
 type decl_infos = {
   ast : type_declaration;
