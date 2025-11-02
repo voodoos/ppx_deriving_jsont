@@ -20,10 +20,3 @@ and 'a var = V of enum [@key "V2"] | D of 'a t
 
 let v = { name = None; v = D { name = Some "d"; v = V A } }
 let () = assert (v = print_and_recode (jsont jsont) v)
-
-(*
-
-let rec jt_rec_t type_param_a =
-  lazy ... Jsont.rec' (jt_rec_t type_param_a) ...
-in
-*)
