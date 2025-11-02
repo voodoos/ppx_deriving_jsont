@@ -5,6 +5,7 @@ module Set = Set.Make (String)
 module Map = Map.Make (String)
 
 type decl_infos = {
+  ast : type_declaration;
   type_name : string with_loc;
   type_params : string with_loc list;
   requires : Set.t;
@@ -67,7 +68,7 @@ let usages_of ~decls ~(in_type_decl : Parsetree.type_declaration) =
   | Ptype_record labels -> usages_in_record_of ~decls labels acc
   | _ -> acc
 
-let is_self_rec ~decls (decl_name, _, decl_requires) =
+let is_self_rec ~decls decl_name decl_requires =
   let rec aux decl_name ~already_checked requires =
     Printf.eprintf "Is %S rec in (%s) ?\n%!" decl_name
       (String.concat ";" (Set.to_list requires));
@@ -81,7 +82,7 @@ let is_self_rec ~decls (decl_name, _, decl_requires) =
           Printf.eprintf "Checking %S rec ?\n%!" required_decl_name;
           if Set.mem required_decl_name already_checked then false
           else
-            let _, _, requires = Map.find required_decl_name decls in
+            let _, _, _, requires = Map.find required_decl_name decls in
             let already_checked = Set.add required_decl_name already_checked in
             Printf.eprintf "Go aux ! (%S)\n%!" required_decl_name;
             aux decl_name ~already_checked requires)
@@ -110,12 +111,12 @@ let decl_infos (decls : type_declaration list) =
           decl.ptype_params
       in
       let requires = usages_of ~decls ~in_type_decl:decl in
-      (type_name, type_params, requires)
+      (decl, type_name, type_params, requires)
     in
     Map.map f decls
   in
   Map.map
-    (fun ((type_name, type_params, requires) as decl) ->
-      let self_rec = is_self_rec ~decls decl in
-      { type_name; type_params; requires; self_rec })
+    (fun (ast, type_name, type_params, requires) ->
+      let self_rec = is_self_rec ~decls type_name requires in
+      { ast; type_name; type_params; requires; self_rec })
     decls

@@ -63,41 +63,29 @@ let jsont_sig_item ~loc ~name type_ =
 let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
   let of_core_type = of_core_type ~current_decls in
   let loc = core_type.ptyp_loc in
-  let nonrecursive = Set.empty in
   (* TODO we should provide finer user control for handling int and floats *)
   match core_type with
-  | [%type: unit] -> ([%expr Jsont.null ()], nonrecursive)
-  | [%type: string] -> ([%expr Jsont.string], nonrecursive)
-  | [%type: bool] -> ([%expr Jsont.bool], nonrecursive)
-  | [%type: float] -> ([%expr Jsont.number], nonrecursive)
-  | [%type: int] -> ([%expr Jsont.int], nonrecursive)
-  | [%type: int32] -> ([%expr Jsont.int32], nonrecursive)
-  | [%type: int64] -> ([%expr Jsont.int64], nonrecursive)
-  | [%type: [%t? typ] option] ->
-      let jsont, requires = of_core_type typ in
-      ([%expr Jsont.option [%e jsont]], requires)
-  | [%type: [%t? typ] list] ->
-      let jsont, requires = of_core_type typ in
-      ([%expr Jsont.list [%e jsont]], requires)
-  | [%type: [%t? typ] array] ->
-      let jsont, requires = of_core_type typ in
-      ([%expr Jsont.array [%e jsont]], requires)
+  | [%type: unit] -> [%expr Jsont.null ()]
+  | [%type: string] -> [%expr Jsont.string]
+  | [%type: bool] -> [%expr Jsont.bool]
+  | [%type: float] -> [%expr Jsont.number]
+  | [%type: int] -> [%expr Jsont.int]
+  | [%type: int32] -> [%expr Jsont.int32]
+  | [%type: int64] -> [%expr Jsont.int64]
+  | [%type: [%t? typ] option] -> [%expr Jsont.option [%e of_core_type typ]]
+  | [%type: [%t? typ] list] -> [%expr Jsont.list [%e of_core_type typ]]
+  | [%type: [%t? typ] array] -> [%expr Jsont.array [%e of_core_type typ]]
   | { ptyp_desc = Ptyp_constr ({ txt = lid; loc }, args); _ } ->
       (* TODO: quoting ? *)
-      let requires =
+      let is_rec =
         match lid with
-        | Lident name when List.mem (jsont_name name) current_decls ->
-            Set.singleton name
-        | _ -> nonrecursive
+        | Lident name -> (
+            match Map.find_opt name current_decls with
+            | None -> false
+            | Some { self_rec; _ } -> self_rec)
+        | _ -> false
       in
-      let is_rec = not (Set.is_empty requires) in
-      let args, requires =
-        List.fold_left
-          (fun (args, requires) arg ->
-            let expr, requires' = of_core_type arg in
-            (expr :: args, Set.union requires requires'))
-          ([], requires) args
-      in
+      let args = List.map of_core_type args in
       let expr =
         if is_rec then
           let name = jsont_rec_value (Longident.name lid) in
@@ -114,10 +102,9 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
               (List.map (fun arg -> (Nolabel, arg)) (List.rev args))
         | _ -> expr
       in
-      (expr, requires)
+      expr
   | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
-      ( Exp.ident (Loc.make ~loc:ptyp_loc (Lident (jsont_type_var label))),
-        nonrecursive )
+      Exp.ident (Loc.make ~loc:ptyp_loc (Lident (jsont_type_var label)))
   | ct ->
       let msg =
         Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
@@ -166,9 +153,9 @@ let of_record_type ~current_decls ~loc ~kind labels =
         pexp_fun ~loc Nolabel None (pvar ~loc name) acc)
       record (List.rev labels)
   in
-  let mems, rec_flag =
+  let mems =
     List.fold_left
-      (fun (acc, requires)
+      (fun acc
            ({ pld_name = { txt = default; loc = name_loc }; pld_type; _ } as ld)
          ->
         let jsont_name =
@@ -200,8 +187,7 @@ let of_record_type ~current_decls ~loc ~kind labels =
               let loc = e.pexp_loc in
               [%expr Some [%e e]]
         in
-        let type_jsont, requires' = of_core_type ~current_decls pld_type in
-        let requires = Set.union requires requires' in
+        let type_jsont = of_core_type ~current_decls pld_type in
         let field_access =
           let loc = pld_type.ptyp_loc in
           [%expr
@@ -209,44 +195,24 @@ let of_record_type ~current_decls ~loc ~kind labels =
               [%e pexp_field ~loc [%expr t] (Loc.make ~loc @@ lident default)]]
         in
         let loc = ld.pld_loc in
-        ( [%expr
-            Jsont.Object.mem
-              [%e estring ~loc:name_loc jsont_name]
-              [%e type_jsont] ~enc:[%e field_access] ?dec_absent:[%e dec_absent]
-              ?enc_omit:[%e enc_omit] [%e acc]],
-          requires ))
-      ( [%expr Jsont.Object.map ~kind:[%e estring ~loc kind] [%e make_fun]],
-        Set.empty )
+        [%expr
+          Jsont.Object.mem
+            [%e estring ~loc:name_loc jsont_name]
+            [%e type_jsont] ~enc:[%e field_access] ?dec_absent:[%e dec_absent]
+            ?enc_omit:[%e enc_omit] [%e acc]])
+      [%expr Jsont.Object.map ~kind:[%e estring ~loc kind] [%e make_fun]]
       labels
   in
-  ([%expr Jsont.Object.finish [%e mems]], rec_flag)
+  [%expr Jsont.Object.finish [%e mems]]
 
-type decl = {
-  type_name : string with_loc;
-  type_params : string with_loc list;
-  requires : Set.t;
-  jsont_expr : expression;
-}
+type decl = { infos : decl_infos; jsont_expr : expression }
 
-let of_type_declaration ~derived_item_loc ~current_decls _rec_flag
-    ({ ptype_name; ptype_params; ptype_kind; ptype_manifest; _ } :
-      Parsetree.type_declaration) =
+let of_type_declaration ~derived_item_loc ~current_decls
+    ({ ast = { ptype_name; ptype_kind; ptype_manifest; _ }; _ } as infos) =
   (* TODO it would be better to have the loc of the annotation here *)
   let loc = derived_item_loc in
   let kind = String.capitalize_ascii ptype_name.txt in
-  let type_params =
-    List.filter_map
-      (fun (core_type, _) ->
-        match core_type.ptyp_desc with
-        | Ptyp_var label ->
-            Some { txt = jsont_type_var label; loc = core_type.ptyp_loc }
-        | _ -> None)
-      ptype_params
-  in
-  (* let jsont_value_binding =
-    jsont_value_binding ~loc ~params ~name:ptype_name.txt
-  in *)
-  let requires, jsont_expr =
+  let jsont_expr =
     match ptype_kind with
     | Ptype_variant constrs
       when List.for_all
@@ -263,26 +229,24 @@ let of_type_declaration ~derived_item_loc ~current_decls _rec_flag
               [%expr [%e estring ~loc name], [%e econstruct cd None]])
             constrs
         in
-        (Set.empty, jsont_enum ~loc ~kind (elist ~loc all_constrs))
+        jsont_enum ~loc ~kind (elist ~loc all_constrs)
     | Ptype_variant constrs ->
         let open Ast_builder.Default in
-        let constrs, rec_flag =
+        let constrs =
           List.fold_left
-            (fun (acc, requires) ({ pcd_name; pcd_vars = _; pcd_args; _ } as cd)
-               ->
+            (fun acc ({ pcd_name; pcd_vars = _; pcd_args; _ } as cd) ->
               let name =
                 Attribute.get Attributes.cd_key cd
                 |> Option.value ~default:pcd_name.txt
               in
-              let arg, requires' =
+              let arg =
                 match pcd_args with
-                | Pcstr_tuple [] -> ([%expr Jsont.null ()], Set.empty)
+                | Pcstr_tuple [] -> [%expr Jsont.null ()]
                 | Pcstr_tuple (first :: _) -> of_core_type ~current_decls first
                 | Pcstr_record _labels ->
                     failwith
                       "ppx_deriving_jsont: not implemented: inline_records"
               in
-              let requires = Set.union requires requires' in
               let wrapped_arg =
                 let kind =
                   estring ~loc:pcd_name.loc (pcd_name.txt ^ "__wrapper")
@@ -311,8 +275,8 @@ let of_type_declaration ~derived_item_loc ~current_decls _rec_flag
                     ~dec:[%e mk_fun]]
               in
               let binding_name = "jsont__" ^ pcd_name.txt in
-              ((binding_name, cd, result) :: acc, requires))
-            ([], Set.empty) constrs
+              (binding_name, cd, result) :: acc)
+            [] constrs
         in
         let bindings, cases =
           List.map
@@ -349,20 +313,19 @@ let of_type_declaration ~derived_item_loc ~current_decls _rec_flag
                    ~enc_case:[%e enc_case] [%e cases]
               |> Jsont.Object.finish]
         in
-        (rec_flag, expr)
+        expr
     | Ptype_record labels ->
-        let expr, requires = of_record_type ~current_decls ~loc ~kind labels in
-        (requires, expr)
+        let expr = of_record_type ~current_decls ~loc ~kind labels in
+        expr
     | Ptype_abstract -> (
         match ptype_manifest with
         | Some core_type ->
-            let value, requires = of_core_type ~current_decls core_type in
-            (requires, value)
+            let value = of_core_type ~current_decls core_type in
+            value
         | _ -> failwith "ppx_deriving_jsont: not implemented: abstract types")
     | _ -> failwith "ppx_deriving_jsont: not implemented"
   in
-  { type_name = ptype_name; type_params; requires; jsont_expr }
-(* jsont_value_binding ~rec_flag jsont_expr *)
+  { infos; jsont_expr }
 
 let jsont_value_binding ~loc decls =
   let open Ast_builder.Default in
@@ -445,18 +408,11 @@ let jsont_value_binding ~loc decls =
   in
   value_binding ~loc ~pat:names ~expr
 
-let of_type_declarations ~derived_item_loc rec_flag tds =
+let of_type_declarations ~derived_item_loc _rec_flag tds =
   let open Ast_builder.Default in
-  let _ = decl_infos tds in
-  let names =
-    List.map
-      (fun { ptype_name = { txt = type_name; _ }; _ } -> jsont_name type_name)
-      tds
-  in
+  let current_decls = decl_infos tds in
   let decls =
-    List.map
-      (of_type_declaration ~derived_item_loc ~current_decls:names rec_flag)
-      tds
+    Map.map (of_type_declaration ~derived_item_loc ~current_decls) current_decls
   in
   (* Currently, we always consider multiple declarations to be mutually
   recursive, but there is enough information in the `requires` field to do finer
