@@ -330,78 +330,81 @@ let of_type_declaration ~derived_item_loc ~current_decls
 let jsont_value_binding ~loc (decls : decl Map.t) =
   let open Ast_builder.Default in
   (* TODO special case for when there is only one binding *)
-  let expr =
-    let bindings, values =
-      List.map
-        (fun (_, decl) ->
-          let txt = jsont_name decl.infos.type_name.txt in
-          let pat = ppat_var ~loc { decl.infos.type_name with txt } in
-          let expr =
-            if decl.infos.self_rec then [%expr lazy [%e decl.jsont_expr]]
-            else decl.jsont_expr
+  let bindings, values =
+    List.map
+      (fun (_, decl) ->
+        let txt = jsont_name decl.infos.type_name.txt in
+        let pat = ppat_var ~loc { decl.infos.type_name with txt } in
+        let expr =
+          if decl.infos.self_rec then [%expr lazy [%e decl.jsont_expr]]
+          else decl.jsont_expr
+        in
+        let expr =
+          List.fold_left
+            (fun acc label ->
+              pexp_fun ~loc:Location.none Nolabel None
+                (ppat_var ~loc:label.loc label)
+                acc)
+            expr
+            (List.rev decl.infos.type_params)
+        in
+        let value =
+          let ident =
+            pexp_ident ~loc { decl.infos.type_name with txt = Lident txt }
           in
-          let expr =
-            List.fold_left
-              (fun acc label ->
-                pexp_fun ~loc:Location.none Nolabel None
-                  (ppat_var ~loc:label.loc label)
-                  acc)
-              expr
-              (List.rev decl.infos.type_params)
+          let with_args =
+            match decl.infos.type_params with
+            | _ :: _ ->
+                Exp.apply ident
+                  (List.map
+                     (fun arg ->
+                       ( Nolabel,
+                         Exp.ident (Loc.make ~loc:arg.loc (Lident arg.txt)) ))
+                     (List.rev decl.infos.type_params))
+            | _ -> ident
           in
-          let value =
-            let ident =
-              pexp_ident ~loc { decl.infos.type_name with txt = Lident txt }
-            in
-            let with_args =
-              match decl.infos.type_params with
-              | _ :: _ ->
-                  Exp.apply ident
-                    (List.map
-                       (fun arg ->
-                         ( Nolabel,
-                           Exp.ident (Loc.make ~loc:arg.loc (Lident arg.txt)) ))
-                       (List.rev decl.infos.type_params))
-              | _ -> ident
-            in
-            let with_lazy =
-              if decl.infos.self_rec then [%expr Lazy.force [%e with_args]]
-              else with_args
-            in
-            List.fold_left
-              (fun acc param ->
-                pexp_fun ~loc Nolabel None (ppat_var ~loc param) acc)
-              with_lazy decl.infos.type_params
+          let with_lazy =
+            if decl.infos.self_rec then [%expr Lazy.force [%e with_args]]
+            else with_args
           in
-          (value_binding ~loc ~pat ~expr, value))
-        (Map.to_list decls)
-      |> List.split
-    in
-    let rec_flag =
-      (* Are some of these declaration cross-references ?
-         Note: this is weaker than being mutually recursive.
+          List.fold_left
+            (fun acc param ->
+              pexp_fun ~loc Nolabel None (ppat_var ~loc param) acc)
+            with_lazy decl.infos.type_params
+        in
+        (value_binding ~loc ~pat ~expr, value))
+      (Map.to_list decls)
+    |> List.split
+  in
+  let is_rec =
+    (* Are some of these declaration cross-references ?
+      Note: this is weaker than being mutually recursive,
+            this is in fact not recursion
 
-         And broken in some not-really recursive cases:
-         let rec t = u and u = 4;;
-         Error: This kind of expression is not allowed as
-         right-hand side of let rec*)
-      let is_rec =
-        Map.exists
-          (fun _ { infos = { requires; _ }; _ } -> not (Set.is_empty requires))
-          decls
+       And broken in some not-really recursive cases:
+       let rec t = u and u = 4;;
+       Error: This kind of expression is not allowed as
+       right-hand side of let rec *)
+    Map.exists
+      (fun _ { infos = { requires; _ }; _ } -> not (Set.is_empty requires))
+      decls
+  in
+  match bindings with
+  (* Special case for lone decls that are not recursive *)
+  | [ binding ] when not is_rec -> binding
+  | _ ->
+      let expr =
+        let rec_flag = if is_rec then Recursive else Nonrecursive in
+        pexp_let ~loc rec_flag bindings (pexp_tuple ~loc values)
       in
-      if is_rec then Recursive else Nonrecursive
-    in
-    pexp_let ~loc rec_flag bindings (pexp_tuple ~loc values)
-  in
-  let names =
-    ppat_tuple ~loc
-    @@ List.map
-         (fun (_, { infos = { type_name; _ }; _ }) ->
-           pvar ~loc (jsont_name type_name.txt))
-         (Map.to_list decls)
-  in
-  value_binding ~loc ~pat:names ~expr
+      let names =
+        ppat_tuple ~loc
+        @@ List.map
+             (fun (_, { infos = { type_name; _ }; _ }) ->
+               pvar ~loc (jsont_name type_name.txt))
+             (Map.to_list decls)
+      in
+      value_binding ~loc ~pat:names ~expr
 
 let of_type_declarations ~derived_item_loc _rec_flag tds =
   let open Ast_builder.Default in
