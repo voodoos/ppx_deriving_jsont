@@ -367,14 +367,10 @@ let jsont_value_binding ~loc (decls : decl Map.t) =
               if decl.infos.self_rec then [%expr Lazy.force [%e with_args]]
               else with_args
             in
-
-            match decl.infos.type_params with
-            | _ :: _ ->
-                List.fold_left
-                  (fun acc param ->
-                    pexp_fun ~loc Nolabel None (ppat_var ~loc param) acc)
-                  with_lazy decl.infos.type_params
-            | _ -> with_lazy
+            List.fold_left
+              (fun acc param ->
+                pexp_fun ~loc Nolabel None (ppat_var ~loc param) acc)
+              with_lazy decl.infos.type_params
           in
           (value_binding ~loc ~pat ~expr, value))
         (Map.to_list decls)
