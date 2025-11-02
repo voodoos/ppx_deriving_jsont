@@ -251,10 +251,12 @@ let of_type_declaration ~derived_item_loc ~current_decls
                 let kind =
                   estring ~loc:pcd_name.loc (pcd_name.txt ^ "__wrapper")
                 in
-                [%expr
-                  Jsont.Object.map ~kind:[%e kind] Fun.id
-                  |> Jsont.Object.mem "v" [%e arg] ~enc:Fun.id
-                  |> Jsont.Object.finish]
+                if pcd_args = Pcstr_tuple [] then [%expr Jsont.Object.zero]
+                else
+                  [%expr
+                    Jsont.Object.map ~kind:[%e kind] Fun.id
+                    |> Jsont.Object.mem "v" [%e arg] ~enc:Fun.id
+                    |> Jsont.Object.finish]
               in
               let mk_fun =
                 (* fun arg -> Circle arg *)

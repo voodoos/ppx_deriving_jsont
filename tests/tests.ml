@@ -4,19 +4,28 @@ let print_and_recode j t =
   print_endline json;
   decode_string j json |> Result.get_ok
 
+(* Enums *)
 type enum = A | X [@key "B"] | C [@@deriving jsont]
 
 let v = [ A; X; C ]
 let () = assert (v = print_and_recode (Jsont.list enum_jsont) v)
 
+(* Record and multiple decls *)
 type u = { name : v; next : u option } [@@deriving jsont]
 and v = enum
 
 let v : u = { name = A; next = Some { name = X; next = None } }
 let () = assert (v = print_and_recode u_jsont v)
 
-type 'a t = { name : string option; [@option] v : 'a var } [@@deriving jsont]
-and 'a var = V of enum [@key "V2"] | D of 'a t
+(* Variants *)
+type b = V of int | U of u | Empty [@@deriving jsont]
 
-let v = { name = None; v = D { name = Some "d"; v = V A } }
+let v = [ V 4; U { name = A; next = None }; Empty ]
+let () = assert (v = print_and_recode (Jsont.list b_jsont) v)
+
+(* Mutually recursive declarations *)
+type 'a t = { name : string option; [@option] v : 'a var } [@@deriving jsont]
+and 'a var = V of enum [@key "V2"] | D of 'a t | Empty
+
+let v = { name = None; v = D { name = Some "d"; v = Empty } }
 let () = assert (v = print_and_recode (jsont jsont) v)
