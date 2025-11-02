@@ -86,21 +86,20 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
         | _ -> false
       in
       let args = List.map of_core_type args in
-      let expr =
-        if is_rec then
-          let name = jsont_name (Longident.name lid) in
-          [%expr Jsont.rec' [%e Exp.ident (Loc.make ~loc (Lident name))]]
-        else
-          Exp.ident
-            (Loc.make ~loc
-               (Ppxlib.Expansion_helpers.mangle_lid (Suffix "jsont") lid))
+      let ident =
+        Exp.ident
+          (Loc.make ~loc
+             (Ppxlib.Expansion_helpers.mangle_lid (Suffix "jsont") lid))
+      in
+      let with_args =
+        match args with
+        | _ :: _ ->
+            Exp.apply ident
+              (List.map (fun arg -> (Nolabel, arg)) (List.rev args))
+        | _ -> ident
       in
       let expr =
-        match (args, is_rec) with
-        | _ :: _, false ->
-            Exp.apply expr
-              (List.map (fun arg -> (Nolabel, arg)) (List.rev args))
-        | _ -> expr
+        if is_rec then [%expr Jsont.rec' [%e with_args]] else with_args
       in
       expr
   | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
@@ -353,7 +352,29 @@ let jsont_value_binding ~loc (decls : decl Map.t) =
             let ident =
               pexp_ident ~loc { decl.infos.type_name with txt = Lident txt }
             in
-            if decl.infos.self_rec then [%expr Lazy.force [%e ident]] else ident
+            let with_args =
+              match decl.infos.type_params with
+              | _ :: _ ->
+                  Exp.apply ident
+                    (List.map
+                       (fun arg ->
+                         ( Nolabel,
+                           Exp.ident (Loc.make ~loc:arg.loc (Lident arg.txt)) ))
+                       (List.rev decl.infos.type_params))
+              | _ -> ident
+            in
+            let with_lazy =
+              if decl.infos.self_rec then [%expr Lazy.force [%e with_args]]
+              else with_args
+            in
+
+            match decl.infos.type_params with
+            | _ :: _ ->
+                List.fold_left
+                  (fun acc param ->
+                    pexp_fun ~loc Nolabel None (ppat_var ~loc param) acc)
+                  with_lazy decl.infos.type_params
+            | _ -> with_lazy
           in
           (value_binding ~loc ~pat ~expr, value))
         (Map.to_list decls)
@@ -392,9 +413,12 @@ let of_type_declarations ~derived_item_loc _rec_flag tds =
   let decls =
     Map.map (of_type_declaration ~derived_item_loc ~current_decls) current_decls
   in
-  (* Currently, we always consider multiple declarations to be mutually
-  recursive, but there is enough information in the `requires` field to do finer
-  analysis. *)
+  (*
+    Some type definiton cannot be directly translated to a let rec:
+
+    let rec t = u and u = 4;;
+    Error: This kind of expression is not allowed as right-hand side of let rec
+  *)
   (* Similarly we estimate that they all need the complete set of type parameters *)
   pstr_value ~loc:derived_item_loc Nonrecursive
     [ jsont_value_binding ~loc:derived_item_loc decls ]
