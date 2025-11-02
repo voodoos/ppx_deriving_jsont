@@ -379,13 +379,18 @@ let of_type_declaration ~derived_item_loc ~current_decls _rec_flag
 
 let jsont_value_binding ~loc decls =
   let open Ast_builder.Default in
-  let is_rec decl =
+  let is_self_rec decl =
     let rec aux decl ~already_checked requires =
-      if Set.mem decl.type_name.txt requires then true
+      Printf.eprintf "Is %S rec in (%s) ?\n%!" decl.type_name.txt
+        (String.concat ";" (Set.to_list requires));
+      if Set.mem decl.type_name.txt requires then (
+        Printf.eprintf "%S is rec !\n%!" decl.type_name.txt;
+        true)
       else
         (* This could be made more efficient if required *)
         Set.find_first_opt
           (fun required_decl_name ->
+            Printf.eprintf "Checking %S rec ?\n%!" required_decl_name;
             if Set.mem required_decl_name already_checked then false
             else
               let required_decl =
@@ -397,6 +402,7 @@ let jsont_value_binding ~loc decls =
               let already_checked =
                 Set.add required_decl_name already_checked
               in
+              Printf.eprintf "Go aux ! (%S)\n%!" required_decl_name;
               aux decl ~already_checked required_decl.requires)
           requires
         |> Option.fold ~none:false ~some:(fun _ -> true)
@@ -405,14 +411,14 @@ let jsont_value_binding ~loc decls =
   in
   (* TODO special case for when there is only one binding *)
   let expr =
-    let maybe_lazy_bindings, values =
+    let bindings, values =
       List.map
         (fun decl ->
-          let is_rec = is_rec decl in
+          let is_self_rec = is_self_rec decl in
           let txt = jsont_rec_value decl.type_name.txt in
           let pat = ppat_var ~loc { decl.type_name with txt } in
           let expr =
-            if is_rec then [%expr lazy [%e decl.jsont_expr]]
+            if is_self_rec then [%expr lazy [%e decl.jsont_expr]]
             else decl.jsont_expr
           in
           let expr =
@@ -428,14 +434,20 @@ let jsont_value_binding ~loc decls =
             let ident =
               pexp_ident ~loc { decl.type_name with txt = Lident txt }
             in
-            if is_rec then [%expr Lazy.force [%e ident]] else ident
+            if is_self_rec then [%expr Lazy.force [%e ident]] else ident
           in
-          ((is_rec, value_binding ~loc ~pat ~expr), value))
+          (value_binding ~loc ~pat ~expr, value))
         decls
       |> List.split
     in
-    let is_recs, bindings = List.split maybe_lazy_bindings in
-    let rec_flag = if List.mem true is_recs then Recursive else Nonrecursive in
+    let rec_flag =
+      (* Are some of these declaration cross-references ?
+         Note: this is weaker than being mutually recursive *)
+      let is_rec =
+        List.exists (fun { requires; _ } -> not (Set.is_empty requires)) decls
+      in
+      if is_rec then Recursive else Nonrecursive
+    in
     pexp_let ~loc rec_flag bindings (pexp_tuple ~loc values)
   in
   let names =
@@ -462,7 +474,7 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
   recursive, but there is enough information in the `requires` field to do finer
   analysis. *)
   (* Similarly we estimate that they all need the complete set of type parameters *)
-  pstr_value ~loc:derived_item_loc rec_flag
+  pstr_value ~loc:derived_item_loc Nonrecursive
     [ jsont_value_binding ~loc:derived_item_loc decls ]
 
 let sig_of_type_decl ~derived_item_loc
