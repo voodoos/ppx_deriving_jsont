@@ -1,1 +1,3 @@
-{"parent":{"v":{"type":"V2","v":"B"}},"v":{"type":"D","v":null}}
+["A","B","C"]
+{"name":"A","next":{"name":"B","next":null}}
+{"v":{"type":"D","v":{"name":"d","v":{"type":"V2","v":"A"}}}}
