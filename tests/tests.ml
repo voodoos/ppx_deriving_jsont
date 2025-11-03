@@ -23,6 +23,17 @@ type b = V of int | U of u | R of { arg : bool } | Empty [@@deriving jsont]
 let v = [ V 4; U { name = A; next = None }; R { arg = true }; Empty ]
 let () = assert (v = print_and_recode (Jsont.list b_jsont) v)
 
+(* Polymorphic variants *)
+type pv = [ `A | `B ] [@@deriving jsont]
+
+let v = [ `A; `B ]
+let () = assert (v = print_and_recode (Jsont.list pv_jsont) v)
+
+type pv2 = [ `A of int | `B [@key "'B"] ] [@@deriving jsont]
+
+let v = [ `A 3; `B ]
+let () = assert (v = print_and_recode (Jsont.list pv2_jsont) v)
+
 (* Mutually recursive declarations *)
 type 'a t = { name : string option; [@option] v : 'a var } [@@deriving jsont]
 and 'a var = V of enum [@key "V2"] | D of 'a t | Empty
