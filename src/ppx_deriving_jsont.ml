@@ -104,6 +104,7 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       expr
   | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
       Exp.ident (Loc.make ~loc:ptyp_loc (Lident (jsont_type_var label)))
+  (* | { ptyp_desc = Ptyp_variant (rfs, _, _); ptyp_loc; _ } -> () *)
   | ct ->
       let msg =
         Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
@@ -229,6 +230,128 @@ let of_record_type ~current_decls ~loc ~kind ?inlined_constr labels =
   in
   [%expr Jsont.Object.finish [%e mems]]
 
+let of_variant_type ~loc ~kind ~current_decls
+    (constrs : (string with_loc * string option * constructor_arguments) list) =
+  let open Ast_builder.Default in
+  let lid name = { name with txt = Lident name.txt } in
+  let as_enum constrs =
+    (* Constructors have no argument, we use an enumeration *)
+    let all_constrs =
+      List.map
+        (fun (real_name, user_name, _) ->
+          let name = Option.value ~default:real_name.txt user_name in
+          let construct = pexp_construct ~loc (lid real_name) None in
+          [%expr [%e estring ~loc name], [%e construct]])
+        constrs
+    in
+    jsont_enum ~loc ~kind (elist ~loc all_constrs)
+  in
+  let as_object_cases constrs =
+    let constrs =
+      List.fold_left
+        (fun acc (real_name, user_name, pcd_args) ->
+          let name = Option.value ~default:real_name.txt user_name in
+          let lid = lid real_name in
+          let arg =
+            match pcd_args with
+            | Pcstr_tuple [] -> `No_arg
+            | Pcstr_tuple [ first ] ->
+                `Should_wrap (of_core_type ~current_decls first)
+            | Pcstr_tuple (_ :: _) ->
+                failwith "ppx_deriving_jsont: not implemented: tuples"
+            | Pcstr_record labels ->
+                (* Inlined record are tricky because they need to be kept
+                   under their type constructor at any time. *)
+                let inlined_constr = lid in
+                `Inline_record
+                  (of_record_type ~current_decls ~loc ~kind ~inlined_constr
+                     labels)
+            (* failwith
+                  "ppx_deriving_jsont: not implemented: inline_records" *)
+          in
+          let wrapped_arg =
+            (* There is no need to wrap when there is no argument *)
+            (* TODO We could also detect when the argument is a record and
+               inline it *)
+            match arg with
+            | `No_arg -> [%expr Jsont.Object.zero]
+            | `Inline_record arg -> arg
+            | `Should_wrap arg ->
+                let kind =
+                  estring ~loc:real_name.loc (real_name.txt ^ "__wrapper")
+                in
+                [%expr
+                  Jsont.Object.map ~kind:[%e kind] Fun.id
+                  |> Jsont.Object.mem "v" [%e arg] ~enc:Fun.id
+                  |> Jsont.Object.finish]
+          in
+          let mk_fun =
+            (* fun arg -> Circle arg *)
+            let loc = real_name.loc in
+            let pat, var =
+              if arg = `No_arg then (punit ~loc, None)
+              else
+                let arg_name = "arg" in
+                (pvar ~loc arg_name, Some (evar ~loc arg_name))
+            in
+            match arg with
+            | `Inline_record _ -> [%expr Fun.id]
+            | _ ->
+                let construct = pexp_construct ~loc lid var in
+                pexp_fun ~loc Nolabel None pat construct
+          in
+          let result =
+            (* Jsont.Object.Case.map "Circle" Circle.jsont ~dec:circle *)
+            let name = estring ~loc:real_name.loc name in
+            [%expr
+              Jsont.Object.Case.map [%e name] [%e wrapped_arg] ~dec:[%e mk_fun]]
+          in
+          let binding_name = "jsont__" ^ real_name.txt in
+          (binding_name, lid, arg, result) :: acc)
+        [] constrs
+    in
+    let bindings, cases =
+      List.map
+        (fun (binding_name, _, _, expr) ->
+          ( value_binding ~loc ~pat:(pvar ~loc binding_name) ~expr,
+            [%expr Jsont.Object.Case.make [%e evar ~loc binding_name]] ))
+        constrs
+      |> List.split
+    in
+    let enc_case =
+      pexp_function_cases ~loc
+      @@ List.map
+           (fun (binding_name, lid, arg, _) ->
+             let pat, var =
+               if arg = `No_arg then (None, eunit ~loc)
+               else (Some (pvar ~loc "t"), evar ~loc "t")
+             in
+             let wrapped_var =
+               match arg with
+               | `Inline_record _ -> pexp_construct ~loc:lid.loc lid (Some var)
+               | _ -> var
+             in
+             let rhs =
+               [%expr
+                 Jsont.Object.Case.value [%e evar ~loc binding_name]
+                   [%e wrapped_var]]
+             in
+             let lhs = ppat_construct ~loc lid pat in
+             case ~lhs ~guard:None ~rhs)
+           constrs
+    in
+    let cases = elist ~loc cases in
+    pexp_let ~loc Nonrecursive bindings
+      [%expr
+        Jsont.Object.map ~kind:[%e estring ~loc kind] Fun.id
+        |> Jsont.Object.case_mem "type" Jsont.string ~enc:Fun.id
+             ~enc_case:[%e enc_case] [%e cases]
+        |> Jsont.Object.finish]
+  in
+  if List.for_all (fun (_, _, pcd_args) -> pcd_args = Pcstr_tuple []) constrs
+  then as_enum constrs
+  else as_object_cases constrs
+
 type decl = { infos : decl_infos; jsont_expr : expression }
 
 let of_type_declaration ~derived_item_loc ~current_decls
@@ -238,135 +361,15 @@ let of_type_declaration ~derived_item_loc ~current_decls
   let kind = String.capitalize_ascii ptype_name.txt in
   let jsont_expr =
     match ptype_kind with
-    | Ptype_variant constrs
-      when List.for_all
-             (fun { pcd_args; _ } -> pcd_args = Pcstr_tuple [])
-             constrs ->
-        (* Constructors have no argument, we use an enumeration *)
-        let open Ast_builder.Default in
-        let all_constrs =
-          List.map
-            (fun ({ pcd_name = { txt = default; loc }; _ } as cd) ->
-              let name =
-                Attribute.get Attributes.cd_key cd |> Option.value ~default
-              in
-              [%expr [%e estring ~loc name], [%e econstruct cd None]])
-            constrs
-        in
-        jsont_enum ~loc ~kind (elist ~loc all_constrs)
     | Ptype_variant constrs ->
-        let open Ast_builder.Default in
         let constrs =
-          List.fold_left
-            (fun acc ({ pcd_name; pcd_vars = _; pcd_args; _ } as cd) ->
-              let name =
-                Attribute.get Attributes.cd_key cd
-                |> Option.value ~default:pcd_name.txt
-              in
-              let arg =
-                match pcd_args with
-                | Pcstr_tuple [] -> `No_arg
-                | Pcstr_tuple [ first ] ->
-                    `Should_wrap (of_core_type ~current_decls first)
-                | Pcstr_tuple (_ :: _) ->
-                    failwith "ppx_deriving_jsont: not implemented: tuples"
-                | Pcstr_record labels ->
-                    (* Inlined record are tricky because they need to be kept
-                       under their type constructor at any time. *)
-                    let inlined_constr =
-                      { pcd_name with txt = Lident pcd_name.txt }
-                    in
-                    `Inline_record
-                      (of_record_type ~current_decls ~loc ~kind ~inlined_constr
-                         labels)
-                (* failwith
-                      "ppx_deriving_jsont: not implemented: inline_records" *)
-              in
-              let wrapped_arg =
-                (* There is no need to wrap when there is no argument *)
-                (* TODO We could also detect when the argument is a record and
-                   inline it *)
-                match arg with
-                | `No_arg -> [%expr Jsont.Object.zero]
-                | `Inline_record arg -> arg
-                | `Should_wrap arg ->
-                    let kind =
-                      estring ~loc:pcd_name.loc (pcd_name.txt ^ "__wrapper")
-                    in
-                    [%expr
-                      Jsont.Object.map ~kind:[%e kind] Fun.id
-                      |> Jsont.Object.mem "v" [%e arg] ~enc:Fun.id
-                      |> Jsont.Object.finish]
-              in
-              let mk_fun =
-                (* fun arg -> Circle arg *)
-                let loc = pcd_name.loc in
-                let pat, var =
-                  if arg = `No_arg then (punit ~loc, None)
-                  else
-                    let arg_name = "arg" in
-                    (pvar ~loc arg_name, Some (evar ~loc arg_name))
-                in
-                match arg with
-                | `Inline_record _ -> [%expr Fun.id]
-                | _ -> pexp_fun ~loc Nolabel None pat (econstruct cd var)
-              in
-              let result =
-                (* Jsont.Object.Case.map "Circle" Circle.jsont ~dec:circle *)
-                let name = estring ~loc:pcd_name.loc name in
-                [%expr
-                  Jsont.Object.Case.map [%e name] [%e wrapped_arg]
-                    ~dec:[%e mk_fun]]
-              in
-              let binding_name = "jsont__" ^ pcd_name.txt in
-              (binding_name, cd, result) :: acc)
-            [] constrs
-        in
-        let bindings, cases =
           List.map
-            (fun (binding_name, _, expr) ->
-              ( value_binding ~loc ~pat:(pvar ~loc binding_name) ~expr,
-                [%expr Jsont.Object.Case.make [%e evar ~loc binding_name]] ))
+            (fun ({ pcd_name; pcd_args; _ } as cd) ->
+              let user_name = Attribute.get Attributes.cd_key cd in
+              (pcd_name, user_name, pcd_args))
             constrs
-          |> List.split
         in
-        let enc_case =
-          pexp_function_cases ~loc
-          @@ List.map
-               (fun (binding_name, cd, _) ->
-                 let pat, var =
-                   if cd.pcd_args = Pcstr_tuple [] then (None, eunit ~loc)
-                   else (Some (pvar ~loc "t"), evar ~loc "t")
-                 in
-                 let wrapped_var =
-                   match cd.pcd_args with
-                   | Pcstr_record _ ->
-                       let lid =
-                         { cd.pcd_name with txt = Lident cd.pcd_name.txt }
-                       in
-                       pexp_construct ~loc:lid.loc lid (Some var)
-                   | _ -> var
-                 in
-                 let rhs =
-                   [%expr
-                     Jsont.Object.Case.value [%e evar ~loc binding_name]
-                       [%e wrapped_var]]
-                 in
-                 case ~lhs:(pconstruct cd pat) ~guard:None ~rhs)
-               constrs
-        in
-        let cases = elist ~loc cases in
-        let expr =
-          pexp_let ~loc Nonrecursive bindings
-            [%expr
-              Jsont.Object.map
-                ~kind:[%e estring ~loc:ptype_name.loc kind]
-                Fun.id
-              |> Jsont.Object.case_mem "type" Jsont.string ~enc:Fun.id
-                   ~enc_case:[%e enc_case] [%e cases]
-              |> Jsont.Object.finish]
-        in
-        expr
+        of_variant_type ~loc ~kind ~current_decls constrs
     | Ptype_record labels ->
         let expr = of_record_type ~current_decls ~loc ~kind labels in
         expr
