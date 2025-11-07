@@ -90,7 +90,7 @@ let is_self_rec ~decls decl_name decl_requires =
   in
   aux decl_name.txt ~already_checked:Set.empty decl_requires
 
-let decl_infos (decls : type_declaration list) =
+let decl_infos ~non_rec (decls : type_declaration list) =
   let decls =
     List.fold_left
       (fun acc decl -> Map.add decl.ptype_name.txt decl acc)
@@ -109,7 +109,11 @@ let decl_infos (decls : type_declaration list) =
             | _ -> None)
           decl.ptype_params
       in
-      let requires = usages_of ~decls ~in_type_decl:decl in
+      let requires =
+        (* References to the current decl or another in the group are not
+           allowed when the type is marked as [nonrec]. *)
+        if non_rec then Set.empty else usages_of ~decls ~in_type_decl:decl
+      in
       (decl, type_name, type_params, requires)
     in
     Map.map f decls

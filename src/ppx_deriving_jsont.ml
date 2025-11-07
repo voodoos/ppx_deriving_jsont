@@ -412,7 +412,7 @@ let of_type_declaration ~derived_item_loc ~current_decls
   in
   { infos; jsont_expr }
 
-let jsont_value_binding ~loc (decls : decl Map.t) =
+let jsont_value_binding ~loc ~non_rec (decls : decl Map.t) =
   let open Ast_builder.Default in
   (* TODO special case for when there is only one binding *)
   let bindings, values =
@@ -470,9 +470,10 @@ let jsont_value_binding ~loc (decls : decl Map.t) =
        let rec t = u and u = 4;;
        Error: This kind of expression is not allowed as
        right-hand side of let rec *)
-    Map.exists
-      (fun _ { infos = { requires; _ }; _ } -> not (Set.is_empty requires))
-      decls
+    (not non_rec)
+    && Map.exists
+         (fun _ { infos = { requires; _ }; _ } -> not (Set.is_empty requires))
+         decls
   in
   match bindings with
   (* Special case for lone decls that are not recursive *)
@@ -491,9 +492,10 @@ let jsont_value_binding ~loc (decls : decl Map.t) =
       in
       value_binding ~loc ~pat:names ~expr
 
-let of_type_declarations ~derived_item_loc _rec_flag tds =
+let of_type_declarations ~derived_item_loc rec_flag tds =
   let open Ast_builder.Default in
-  let current_decls = decl_infos tds in
+  let non_rec = rec_flag = Nonrecursive in
+  let current_decls = decl_infos ~non_rec tds in
   let () =
     if debug then
       Map.iter
@@ -511,7 +513,7 @@ let of_type_declarations ~derived_item_loc _rec_flag tds =
   *)
   (* Similarly we estimate that they all need the complete set of type parameters *)
   pstr_value ~loc:derived_item_loc Nonrecursive
-    [ jsont_value_binding ~loc:derived_item_loc decls ]
+    [ jsont_value_binding ~non_rec ~loc:derived_item_loc decls ]
 
 let sig_of_type_decl ~derived_item_loc
     ({ ptype_name = { txt = name; _ }; _ } : Parsetree.type_declaration) =
@@ -522,11 +524,8 @@ let sig_of_type_decl ~derived_item_loc
       [%type: [%t Typ.constr (Loc.make ~loc @@ lident name) []] Jsont.t];
   ]
 
-let generate_impl ~ctxt (_rec_flag, type_declarations) =
+let generate_impl ~ctxt (rec_flag, type_declarations) =
   let derived_item_loc = Expansion_context.Deriver.derived_item_loc ctxt in
-  let rec_flag =
-    if List.length type_declarations > 1 then Recursive else Nonrecursive
-  in
   [ of_type_declarations ~derived_item_loc rec_flag type_declarations ]
 
 let generate_sig ~ctxt (_, type_declarations) =
