@@ -40,3 +40,13 @@ and 'a var = V of enum [@key "V2"] | D of 'a t | Empty
 
 let v = { name = None; v = D { name = Some "d"; v = Empty } }
 let () = assert (v = print_and_recode (jsont jsont) v)
+
+(* The [nonrec] annotation is respected *)
+module M = struct
+  type nonrec v = u [@@deriving jsont]
+  and u = v
+end
+
+(* FIXME *)
+type t2 = int t3 [@@deriving jsont]
+and 'a t3 = A of 'a
