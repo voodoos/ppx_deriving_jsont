@@ -177,13 +177,12 @@ and of_variant_type ~loc ~kind ~current_decls ?(poly = false)
                 `Inline_record
                   (of_record_type ~current_decls ~loc ~kind ~inlined_constr
                      labels)
-            (* failwith
-                    "ppx_deriving_jsont: not implemented: inline_records" *)
           in
           let wrapped_arg =
             (* There is no need to wrap when there is no argument *)
             (* TODO We could also detect when the argument is a record and
-                 inline it *)
+                 not wrap it. Edit: that's not actually possible. We could
+                 provide an attribute instead.  *)
             match arg with
             | `No_arg -> [%expr Jsont.Object.zero]
             | `Inline_record arg -> arg
@@ -414,7 +413,6 @@ let of_type_declaration ~derived_item_loc ~current_decls
 
 let jsont_value_binding ~loc ~non_rec (decls : decl Map.t) =
   let open Ast_builder.Default in
-  (* TODO special case for when there is only one binding *)
   let bindings, values =
     List.map
       (fun (_, decl) ->
@@ -462,9 +460,9 @@ let jsont_value_binding ~loc ~non_rec (decls : decl Map.t) =
     |> List.split
   in
   let is_rec =
-    (* Are some of these declaration cross-references ?
-      Note: this is weaker than being mutually recursive,
-            this is in fact not recursion
+    (* Are some of these declarations cross-referencing ?
+       (Note: this is weaker than being mutually recursive,
+            this is in fact not recursion)
 
        And broken in some not-really recursive cases:
        let rec t = u and u = 4;;
@@ -505,13 +503,12 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
   let decls =
     Map.map (of_type_declaration ~derived_item_loc ~current_decls) current_decls
   in
-  (*
-    Some type definiton cannot be directly translated to a let rec:
+  (* TODO
+    Some type definitions cannot be directly translated to a let rec:
 
     let rec t = u and u = 4;;
     Error: This kind of expression is not allowed as right-hand side of let rec
   *)
-  (* Similarly we estimate that they all need the complete set of type parameters *)
   pstr_value ~loc:derived_item_loc Nonrecursive
     [ jsont_value_binding ~non_rec ~loc:derived_item_loc decls ]
 
