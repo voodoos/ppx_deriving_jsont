@@ -36,6 +36,21 @@ module Attributes = struct
   let ld_omit = omit Attribute.Context.label_declaration
   let option context = Attribute.declare_flag "deriving.jsont.option" context
   let ld_option = option Attribute.Context.label_declaration
+
+  let kind context =
+    Attribute.declare "deriving.jsont.kind" context
+      Ast_pattern.(single_expr_payload (estring __))
+      Fun.id
+
+  let td_kind = kind Attribute.Context.type_declaration
+
+  let doc context =
+    Attribute.declare "deriving.jsont.doc" context
+      Ast_pattern.(single_expr_payload (estring __))
+      Fun.id
+
+  let td_doc = doc Attribute.Context.type_declaration
+  let ld_doc = doc Attribute.Context.label_declaration
 end
 
 let deriver = "jsont"
@@ -47,10 +62,13 @@ let jsont_name type_name =
 
 let jsont_rec_value label = "jsont_rec__" ^ label
 
-let jsont_enum ~loc ~kind assoc =
+let jsont_enum ~loc ~kind ?doc assoc =
   let open Ast_builder.Default in
-  pexp_apply ~loc (evar ~loc "Jsont.enum")
-    [ (Labelled "kind", estring ~loc kind); (Nolabel, assoc) ]
+  let args = [ (Labelled "kind", estring ~loc kind); (Nolabel, assoc) ] in
+  pexp_apply ~loc [%expr Jsont.enum]
+    (Option.fold ~none:args
+       ~some:(fun doc -> (Labelled "doc", estring ~loc doc) :: args)
+       doc)
 
 let jsont_sig_item ~loc ~name type_ =
   let open Ast_builder.Default in
@@ -130,7 +148,7 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       (* TODO better ppx error handling *)
       failwith msg
 
-and of_variant_type ~loc ~kind ~current_decls ?(poly = false)
+and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
     (constrs : (string with_loc * string option * constructor_arguments) list) =
   let open Ast_builder.Default in
   let lid name = { name with txt = Lident name.txt } in
@@ -156,7 +174,7 @@ and of_variant_type ~loc ~kind ~current_decls ?(poly = false)
           [%expr [%e estring ~loc name], [%e construct]])
         constrs
     in
-    jsont_enum ~loc ~kind (elist ~loc all_constrs)
+    jsont_enum ~loc ~kind ?doc (elist ~loc all_constrs)
   in
   let as_object_cases constrs =
     let constrs =
@@ -175,7 +193,7 @@ and of_variant_type ~loc ~kind ~current_decls ?(poly = false)
                      under their type constructor at any time. *)
                 let inlined_constr = lid real_name in
                 `Inline_record
-                  (of_record_type ~current_decls ~loc ~kind ~inlined_constr
+                  (of_record_type ~current_decls ~loc ~kind ?doc ~inlined_constr
                      labels)
           in
           let wrapped_arg =
@@ -286,7 +304,7 @@ and of_variant_type ~loc ~kind ~current_decls ?(poly = false)
     end
 *)
 (* Translates records to javascript objects *)
-and of_record_type ~current_decls ~loc ~kind ?inlined_constr labels =
+and of_record_type ~current_decls ~loc ~kind ?doc:_ ?inlined_constr labels =
   let open Ast_builder.Default in
   (* Jsont needs a function to construct the record *)
   let make_fun =
@@ -317,10 +335,11 @@ and of_record_type ~current_decls ~loc ~kind ?inlined_constr labels =
         let jsont_name =
           Attribute.get Attributes.ld_key ld |> Option.value ~default
         in
+        let doc = Attribute.get Attributes.ld_doc ld in
         let dec_absent, enc_omit =
           match Attribute.get Attributes.ld_option ld with
-          | None -> ([%expr None], [%expr None])
-          | Some () -> ([%expr Some None], [%expr Some Option.is_none])
+          | None -> (None, None)
+          | Some () -> (Some [%expr None], Some [%expr Option.is_none])
         in
         let dec_absent =
           let absent_or_default =
@@ -330,18 +349,12 @@ and of_record_type ~current_decls ~loc ~kind ?inlined_constr labels =
             | None -> Attribute.get Attributes.ld_default ld
             | Some attr -> Some attr
           in
-          match absent_or_default with
-          | None -> dec_absent
-          | Some e ->
-              let loc = e.pexp_loc in
-              [%expr Some [%e e]]
+          match absent_or_default with None -> dec_absent | Some e -> Some e
         in
         let enc_omit =
           match Attribute.get Attributes.ld_omit ld with
           | None -> enc_omit
-          | Some e ->
-              let loc = e.pexp_loc in
-              [%expr Some [%e e]]
+          | Some e -> Some e
         in
         let type_jsont = of_core_type ~current_decls pld_type in
         let field_access =
@@ -370,11 +383,27 @@ and of_record_type ~current_decls ~loc ~kind ?inlined_constr labels =
           }
         in
         let loc = ld.pld_loc in
-        [%expr
-          Jsont.Object.mem
-            [%e estring ~loc:name_loc jsont_name]
-            [%e type_jsont] ~enc:[%e field_access] ?dec_absent:[%e dec_absent]
-            ?enc_omit:[%e enc_omit] [%e acc]])
+        let args =
+          let labelled l e = Some (Labelled l, e) in
+          let no_label e = Some (Nolabel, e) in
+          let name = estring ~loc:name_loc jsont_name in
+          let doc =
+            Option.bind doc (fun doc ->
+                labelled "doc" (estring ~loc:Location.none doc))
+          in
+          let dec_absent = Option.bind dec_absent (labelled "dec_absent") in
+          let enc_omit = Option.bind enc_omit (labelled "enc_omit") in
+          [
+            no_label name;
+            doc;
+            no_label type_jsont;
+            labelled "enc" field_access;
+            dec_absent;
+            enc_omit;
+            no_label acc;
+          ]
+        in
+        pexp_apply ~loc [%expr Jsont.Object.mem] (List.filter_map Fun.id args))
       [%expr Jsont.Object.map ~kind:[%e estring ~loc kind] [%e make_fun]]
       labels
   in
@@ -386,7 +415,11 @@ let of_type_declaration ~derived_item_loc ~current_decls
     ({ ast = { ptype_name; ptype_kind; ptype_manifest; _ }; _ } as infos) =
   (* TODO it would be better to have the loc of the annotation here *)
   let loc = derived_item_loc in
-  let kind = String.capitalize_ascii ptype_name.txt in
+  let kind =
+    Attribute.get Attributes.td_kind infos.ast
+    |> Option.value ~default:(String.capitalize_ascii ptype_name.txt)
+  in
+  let doc = Attribute.get Attributes.td_doc infos.ast in
   let jsont_expr =
     match ptype_kind with
     | Ptype_variant constrs ->
@@ -397,9 +430,9 @@ let of_type_declaration ~derived_item_loc ~current_decls
               (pcd_name, user_name, pcd_args))
             constrs
         in
-        of_variant_type ~loc ~kind ~current_decls constrs
+        of_variant_type ~loc ~kind ?doc ~current_decls constrs
     | Ptype_record labels ->
-        let expr = of_record_type ~current_decls ~loc ~kind labels in
+        let expr = of_record_type ~current_decls ~loc ~kind ?doc labels in
         expr
     | Ptype_abstract -> (
         match ptype_manifest with
