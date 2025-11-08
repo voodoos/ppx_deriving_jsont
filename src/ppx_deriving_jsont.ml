@@ -411,7 +411,7 @@ let of_type_declaration ~derived_item_loc ~current_decls
   in
   { infos; jsont_expr }
 
-let jsont_value_binding ~loc ~non_rec (decls : decl Map.t) =
+let jsont_value_binding ~loc rec_flag (decls : decl Map.t) =
   let open Ast_builder.Default in
   let bindings, values =
     List.map
@@ -461,12 +461,9 @@ let jsont_value_binding ~loc ~non_rec (decls : decl Map.t) =
   in
   match bindings with
   (* Special case for lone decls that are not recursive *)
-  | [ binding ] when non_rec -> binding
+  | [ binding ] when rec_flag = Nonrecursive -> binding
   | _ ->
-      let expr =
-        let rec_flag = if non_rec then Nonrecursive else Recursive in
-        pexp_let ~loc rec_flag bindings (pexp_tuple ~loc values)
-      in
+      let expr = pexp_let ~loc rec_flag bindings (pexp_tuple ~loc values) in
       let names =
         ppat_tuple ~loc
         @@ List.map
@@ -476,6 +473,10 @@ let jsont_value_binding ~loc ~non_rec (decls : decl Map.t) =
       in
       value_binding ~loc ~pat:names ~expr
 
+let pp_rec_flag ppf = function
+  | Nonrecursive -> ()
+  | Recursive -> Format.fprintf ppf " rec"
+
 let of_type_declarations ~derived_item_loc rec_flag tds =
   let open Ast_builder.Default in
   let non_rec = rec_flag = Nonrecursive in
@@ -483,8 +484,8 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
   let () =
     if debug then
       List.iter
-        (fun (`Single decls | `Rec decls) ->
-          Format.eprintf "Group:\n%!";
+        (fun (rec_flag, decls) ->
+          Format.eprintf "Group %a:\n%!" pp_rec_flag rec_flag;
           Map.iter
             (fun _ infos -> Format.eprintf "%a\n%!" pp_decl_infos infos)
             decls)
@@ -492,24 +493,25 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
     Format.eprintf "\n%!"
   in
   let decls =
-    let map_decls decls =
-      Map.map (of_type_declaration ~derived_item_loc ~current_decls:decls) decls
-    in
     List.map
-      (function
-        | `Single decls -> `Single (map_decls decls)
-        | `Rec decls -> `Rec (map_decls decls))
+      (fun (rec_flag, decls) ->
+        let decls =
+          Map.map
+            (of_type_declaration ~derived_item_loc ~current_decls:decls)
+            decls
+        in
+        (rec_flag, decls))
       current_decls
   in
   let bindings =
     List.map
-      (fun decls ->
-        let non_rec, decls =
-          match decls with
-          | `Single decls -> (true, decls)
-          | `Rec decls -> (non_rec, decls)
+      (fun (rec_flag', decls) ->
+        let rec_flag =
+          match rec_flag' with
+          | Nonrecursive -> Nonrecursive
+          | Recursive -> rec_flag
         in
-        jsont_value_binding ~non_rec ~loc:derived_item_loc decls)
+        jsont_value_binding rec_flag ~loc:derived_item_loc decls)
       decls
   in
   List.map
