@@ -47,6 +47,21 @@ module M = struct
   and u = v
 end
 
-(* FIXME *)
+(* A recursive case that requires more careful analysis to not produce invalid
+code *)
 type t2 = int t3 [@@deriving jsont]
+and 'a t4 = T3 of 'a t3 | T2 of t2
 and 'a t3 = A of 'a
+
+let v = T2 (A 4)
+let () = assert (v = print_and_recode (t4_jsont Jsont.int) v)
+
+(* Same with several mutually recursive groups *)
+type r1 = R2 of r2 [@@deriving jsont]
+and r2 = R1 of r1 | N of n
+and s1 = S2 of s2
+and s2 = S1 of s1 | Z
+and n = S of s1
+
+let v = R2 (N (S (S2 Z)))
+let () = assert (v = print_and_recode r1_jsont v)
