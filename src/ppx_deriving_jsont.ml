@@ -367,15 +367,28 @@ and of_record_type ~current_decls ~loc ~kind ?doc ?inlined_constr labels =
         pexp_fun ~loc Nolabel None (pvar ~loc name) acc)
       wrapped_record (List.rev labels)
   in
+  let with_make_fun e =
+    let pat = ppat_var ~loc { txt = "make"; loc } in
+    let expr = make_fun in
+    pexp_let ~loc Nonrecursive [ value_binding ~loc ~pat ~expr ] e
+  in
   let map =
     let args =
       let doc =
         Option.bind doc (fun doc -> A.labelled "doc" (estring ~loc doc))
       in
-      [ doc; A.labelled "kind" (estring ~loc kind); A.no_label make_fun ]
+      [
+        doc;
+        A.labelled "kind" (estring ~loc kind);
+        A.no_label (pexp_ident ~loc { txt = lident "make"; loc });
+      ]
       |> A.make
     in
     pexp_apply ~loc [%expr Jsont.Object.map] args
+  in
+  let pipe =
+    let lid = pexp_ident ~loc { txt = lident "|>"; loc } in
+    fun lhs rhs -> pexp_apply ~loc lid [ (Nolabel, lhs); (Nolabel, rhs) ]
   in
   let mems =
     List.fold_left
@@ -449,14 +462,13 @@ and of_record_type ~current_decls ~loc ~kind ?doc ?inlined_constr labels =
             labelled "enc" field_access;
             dec_absent;
             enc_omit;
-            no_label acc;
           ]
           |> make
         in
-        pexp_apply ~loc [%expr Jsont.Object.mem] args)
+        pipe acc (pexp_apply ~loc [%expr Jsont.Object.mem] args))
       map labels
   in
-  [%expr Jsont.Object.finish [%e mems]]
+  with_make_fun (pipe mems [%expr Jsont.Object.finish])
 
 type decl = { infos : decl_infos; jsont_expr : expression }
 

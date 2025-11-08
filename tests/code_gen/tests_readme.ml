@@ -1,8 +1,11 @@
-type sort = A | X [@key "B"] | C [@@kind "sort"] [@@doc "some doc"] [@@deriving_inline jsont]
+type sort = A | X [@key "B"] | C
+[@@kind "sort"] [@@doc "some doc"] [@@deriving_inline jsont]
 
 let _ = fun (_ : sort) -> ()
+
 let sort_jsont =
-  Jsont.enum ~doc:"some doc" ~kind:"sort" [("A", A); ("B", X); ("C", C)]
+  Jsont.enum ~doc:"some doc" ~kind:"sort" [ ("A", A); ("B", X); ("C", C) ]
+
 let _ = sort_jsont
 
 [@@@ppxlib.inline.end]
@@ -12,9 +15,8 @@ type t = {
   maybe_parent : t option; [@option]
   ids : string list; [@default []] [@omit List.is_empty]
   sort : sort; [@key "Sort"]
-} [@@kind "T2"]
-[@@doc "A t object"]
-[@@deriving_inline jsont]
+}
+[@@kind "T2"] [@@doc "A t object"] [@@deriving_inline jsont]
 
 and u = { x : t } [@@kind "U2"]
 
@@ -24,67 +26,79 @@ let _ = fun (_ : u) -> ()
 let jsont =
   let rec jsont =
     lazy
-      (Jsont.Object.finish
-         (Jsont.Object.mem "Sort" sort_jsont ~enc:(fun t -> t.sort)
-            (Jsont.Object.mem "ids" (Jsont.list Jsont.string)
-               ~enc:(fun t -> t.ids) ~dec_absent:[] ~enc_omit:List.is_empty
-               (Jsont.Object.mem "maybe_parent"
-                  (Jsont.option (Jsont.rec' jsont))
-                  ~enc:(fun t -> t.maybe_parent) ~dec_absent:None
-                  ~enc_omit:Option.is_none
-                  (Jsont.Object.mem "name" ~doc:"The name of the object"
-                     Jsont.string ~enc:(fun t -> t.name)
-                     (Jsont.Object.map ~doc:"A t object" ~kind:"T2"
-                        (fun name maybe_parent ids sort ->
-                           { name; maybe_parent; ids; sort }))))))) in
+      (let make name maybe_parent ids sort =
+         { name; maybe_parent; ids; sort }
+       in
+       Jsont.Object.map ~doc:"A t object" ~kind:"T2" make
+       |> Jsont.Object.mem "name" ~doc:"The name of the object" Jsont.string
+            ~enc:(fun t -> t.name)
+       |> Jsont.Object.mem "maybe_parent"
+            (Jsont.option (Jsont.rec' jsont))
+            ~enc:(fun t -> t.maybe_parent)
+            ~dec_absent:None ~enc_omit:Option.is_none
+       |> Jsont.Object.mem "ids" (Jsont.list Jsont.string)
+            ~enc:(fun t -> t.ids)
+            ~dec_absent:[] ~enc_omit:List.is_empty
+       |> Jsont.Object.mem "Sort" sort_jsont ~enc:(fun t -> t.sort)
+       |> Jsont.Object.finish)
+  in
   Lazy.force jsont
+
 let _ = jsont
 
 let u_jsont =
-  Jsont.Object.finish
-    (Jsont.Object.mem "x" jsont ~enc:(fun t -> t.x)
-       (Jsont.Object.map ~kind:"U2" (fun x -> { x })))
+  let make x = { x } in
+  Jsont.Object.map ~kind:"U2" make
+  |> Jsont.Object.mem "x" jsont ~enc:(fun t -> t.x)
+  |> Jsont.Object.finish
 
 let _ = u_jsont
 
 [@@@ppxlib.inline.end]
 
-
 type v =
-    A of int [@key "Id"][@kind "One of A kind"] 
-  | S of sort  [@doc "Doc for S"]
-  | R of { name : string [@doc "Doc for R.name"] }[@doc "Doc for R"]
-  [@@doc "Type v"][@@deriving_inline jsont]
+  | A of int [@key "Id"] [@kind "One of A kind"]
+  | S of sort [@doc "Doc for S"]
+  | R of { name : string [@doc "Doc for R.name"] } [@doc "Doc for R"]
+[@@doc "Type v"] [@@deriving_inline jsont]
 
 let _ = fun (_ : v) -> ()
+
 let v_jsont =
   let jsont__R =
     Jsont.Object.Case.map "R"
-      (Jsont.Object.finish
-         (Jsont.Object.mem "name" ~doc:"Doc for R.name" Jsont.string
-            ~enc:((fun (R t) -> t.name)[@ocaml.warning "-8"])
-            (Jsont.Object.map ~doc:"Doc for R" ~kind:"R"
-               (fun name -> R { name })))) ~dec:Fun.id
+      (let make name = R { name } in
+       Jsont.Object.map ~doc:"Doc for R" ~kind:"R" make
+       |> Jsont.Object.mem "name" ~doc:"Doc for R.name" Jsont.string
+            ~enc:((fun (R t) -> t.name) [@ocaml.warning "-8"])
+       |> Jsont.Object.finish)
+      ~dec:Fun.id
   and jsont__S =
     Jsont.Object.Case.map "S"
-      (((Jsont.Object.map ~kind:"S" ~doc:"Doc for S" Fun.id) |>
-          (Jsont.Object.mem "v" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id))
-         |> Jsont.Object.finish) ~dec:(fun arg -> S arg)
+      (Jsont.Object.map ~kind:"S" ~doc:"Doc for S" Fun.id
+      |> Jsont.Object.mem "v" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id
+      |> Jsont.Object.finish)
+      ~dec:(fun arg -> S arg)
   and jsont__A =
     Jsont.Object.Case.map "Id"
-      (((Jsont.Object.map ~kind:"One of A kind" Fun.id) |>
-          (Jsont.Object.mem "v" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id))
-         |> Jsont.Object.finish) ~dec:(fun arg -> A arg) in
-  ((Jsont.Object.map ~kind:"V" ~doc:"Type v" Fun.id) |>
-     (Jsont.Object.case_mem "type" ~doc:"Cases for V" Jsont.string
-        ~enc:Fun.id
-        ~enc_case:(function
-                   | R t -> Jsont.Object.Case.value jsont__R (R t)
-                   | S t -> Jsont.Object.Case.value jsont__S t
-                   | A t -> Jsont.Object.Case.value jsont__A t)
-        [Jsont.Object.Case.make jsont__R;
-        Jsont.Object.Case.make jsont__S;
-        Jsont.Object.Case.make jsont__A]))
-    |> Jsont.Object.finish
+      (Jsont.Object.map ~kind:"One of A kind" Fun.id
+      |> Jsont.Object.mem "v" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id
+      |> Jsont.Object.finish)
+      ~dec:(fun arg -> A arg)
+  in
+  Jsont.Object.map ~kind:"V" ~doc:"Type v" Fun.id
+  |> Jsont.Object.case_mem "type" ~doc:"Cases for V" Jsont.string ~enc:Fun.id
+       ~enc_case:(function
+         | R t -> Jsont.Object.Case.value jsont__R (R t)
+         | S t -> Jsont.Object.Case.value jsont__S t
+         | A t -> Jsont.Object.Case.value jsont__A t)
+       [
+         Jsont.Object.Case.make jsont__R;
+         Jsont.Object.Case.make jsont__S;
+         Jsont.Object.Case.make jsont__A;
+       ]
+  |> Jsont.Object.finish
+
 let _ = v_jsont
+
 [@@@ppxlib.inline.end]
