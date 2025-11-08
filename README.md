@@ -26,17 +26,19 @@ be happy to improve.
 - [x] Variants with one type parameter
 - [ ] Tuples
 - [ ] Variants with more than one type parameter (using tuples)
-- [ ] Inline records
+- [x] Inline records
 - [x] Records-as-objects
 - [x] Types with parameters
 - [x] [Recursive types](https://erratique.ch/software/jsont/doc/cookbook.html#recursion)
 - [ ] Mutually recursive types
 - [ ] Support for all meaningful base types
 - [ ] Options (in the form of attributes)
+    - [ ] to pass custom Jsont values
     - [ ] for finer support of integers
     - [ ] for finer settings
-    - [ ] to provide `doc` comments
+    - [x] to provide `doc` comments
     - [ ] for other kinds of objects mappings (as sets for example)
+    - [ ] for other kinds of variants mappings (as arrays for example)
 - [ ] Also generate objects' Paths (lenses ?)
 - [ ] Ensure locations make sense
 - [ ] Comprehensive test-suite
@@ -67,7 +69,7 @@ library (or executable), one should add a dependency to `jsont` and use the
 
 ## Usage
 
-Generation is enabled adding the `[@@deriving jsont]` attribute to type
+Generation is enabled by adding the `[@@deriving jsont]` attribute to type
 declarations.
 
 Generation can be tuned with the use of attributes like `[@key "Key"]` that are
@@ -79,12 +81,19 @@ The deriver follows the usual naming conventions. Types whose name is `t`
 generates a value named `jsont`. Otherwise that value bears the name of the type
 suffixed by `_jsont`.
 
+### Declaration attributes
+
+All type declarations can be annotated with the `[@@kind "Some kind"]` and
+`[@@doc "Some doc"]` attributes to improve error messages. This has no effect
+when used on base types.
+
 ### Basic types (with parameters)
 
 #### Example
 
 ```ocaml
 type 'a t = 'a [@@deriving jsont]
+
 type u = int list t [@@deriving jsont]
 ```
 
@@ -92,6 +101,7 @@ type u = int list t [@@deriving jsont]
 
 ```ocaml
 let jsont jsont_type_var__a = jsont_type_var__a
+
 let u_jsont = jsont (Jsont.list Jsont.int)
 ```
 
@@ -178,6 +188,7 @@ technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_reco
 #### Attributes
 - `@key <string>` specifies the JSON key (otherwise the same as the
   field)
+- `@doc <string>` to document fields
 - `@absent <expr>` / `@default <expr>` specifies the value to use when decoding
   if the field is absent (see [the cookbook](https://erratique.ch/software/jsont/doc/cookbook.html#optional_members))
 - `@omit <expr: unit -> bool>` specifies when a value should be ommitted during encoding  [the cookbook](https://erratique.ch/software/jsont/doc/cookbook.html#optional_members)
