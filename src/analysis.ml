@@ -15,7 +15,7 @@ type decl_infos = {
 }
 
 let pp_decl_infos fmt { type_name; requires; self_rec; _ } =
-  let pp_sep fmt () = Format.fprintf fmt ";@ " in
+  let pp_sep fmt () = Format.fprintf fmt ";" in
   Format.fprintf fmt "%S requires [%a] (self_rec = %b)" type_name.txt
     (Format.pp_print_seq ~pp_sep Format.pp_print_string)
     (Set.to_seq requires) self_rec
@@ -118,8 +118,46 @@ let decl_infos ~non_rec (decls : type_declaration list) =
     in
     Map.map f decls
   in
-  Map.map
-    (fun (ast, type_name, type_params, requires) ->
-      let self_rec = is_self_rec ~decls type_name requires in
-      { ast; type_name; type_params; requires; self_rec })
-    decls
+  let decls =
+    Map.map
+      (fun (ast, type_name, type_params, requires) ->
+        let self_rec = is_self_rec ~decls type_name requires in
+        { ast; type_name; type_params; requires; self_rec })
+      decls
+  in
+  (* We group mutually recursive definitions together and isolate non-self
+     recursive ones. This is required to prevent unauthorized uses of recursion
+     such as:
+
+     let rec t = u and u = 4;;
+     Error: This kind of expression is not allowed as right-hand side of let rec
+  *)
+  (* If a more performant algorithm is needed this looks like a good candidate
+     for union find. *)
+  let result =
+    Map.fold
+      (fun name decl acc ->
+        if not decl.self_rec then Array.append acc [| Map.singleton name decl |]
+        else
+          match
+            Array.find_index
+              (Map.exists (fun _ decl ->
+                   decl.self_rec && Set.mem name decl.requires))
+              acc
+          with
+          | None -> Array.append acc [| Map.singleton name decl |]
+          | Some i ->
+              Array.set acc i (Map.add name decl acc.(i));
+              acc)
+      decls [||]
+  in
+  Array.sort
+    (fun ds1 ds2 ->
+      let ds2_requires_ds1 =
+        Map.exists
+          (fun _ d -> Set.exists (fun name -> Map.mem name ds1) d.requires)
+          ds2
+      in
+      if ds2_requires_ds1 then -1 else 1)
+    result;
+  Array.to_list result

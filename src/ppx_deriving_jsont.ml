@@ -496,21 +496,27 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
   let current_decls = decl_infos ~non_rec tds in
   let () =
     if debug then
-      Map.iter
-        (fun _ infos -> Format.eprintf "%a\n%!" pp_decl_infos infos)
+      List.iter
+        (fun decls ->
+          Map.iter
+            (fun _ infos -> Format.eprintf "%a\n%!" pp_decl_infos infos)
+            decls)
         current_decls
   in
   let decls =
-    Map.map (of_type_declaration ~derived_item_loc ~current_decls) current_decls
+    List.map
+      (fun decls ->
+        Map.map
+          (of_type_declaration ~derived_item_loc ~current_decls:decls)
+          decls)
+      current_decls
   in
-  (* TODO
-    Some type definitions cannot be directly translated to a let rec:
-
-    let rec t = u and u = 4;;
-    Error: This kind of expression is not allowed as right-hand side of let rec
-  *)
-  pstr_value ~loc:derived_item_loc Nonrecursive
-    [ jsont_value_binding ~non_rec ~loc:derived_item_loc decls ]
+  let bindings =
+    List.map (jsont_value_binding ~non_rec ~loc:derived_item_loc) decls
+  in
+  List.map
+    (fun b -> pstr_value ~loc:derived_item_loc Nonrecursive [ b ])
+    bindings
 
 let sig_of_type_decl ~derived_item_loc
     ({ ptype_name = { txt = name; _ }; _ } : Parsetree.type_declaration) =
@@ -523,7 +529,7 @@ let sig_of_type_decl ~derived_item_loc
 
 let generate_impl ~ctxt (rec_flag, type_declarations) =
   let derived_item_loc = Expansion_context.Deriver.derived_item_loc ctxt in
-  [ of_type_declarations ~derived_item_loc rec_flag type_declarations ]
+  of_type_declarations ~derived_item_loc rec_flag type_declarations
 
 let generate_sig ~ctxt (_, type_declarations) =
   let derived_item_loc = Expansion_context.Deriver.derived_item_loc ctxt in
