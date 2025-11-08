@@ -43,6 +43,8 @@ module Attributes = struct
       Fun.id
 
   let td_kind = kind Attribute.Context.type_declaration
+  let cd_kind = kind Attribute.Context.constructor_declaration
+  let rtag_kind = kind Attribute.Context.rtag
 
   let doc context =
     Attribute.declare "deriving.jsont.doc" context
@@ -51,6 +53,8 @@ module Attributes = struct
 
   let td_doc = doc Attribute.Context.type_declaration
   let ld_doc = doc Attribute.Context.label_declaration
+  let cd_doc = doc Attribute.Context.constructor_declaration
+  let rtag_doc = doc Attribute.Context.rtag
 end
 
 module A = struct
@@ -75,6 +79,14 @@ let jsont_enum ~loc ~kind ?doc assoc =
     (Option.fold ~none:args
        ~some:(fun doc -> (Labelled "doc", estring ~loc doc) :: args)
        doc)
+
+type generic_constructor = {
+  real_name : string with_loc;
+  user_name : string option;
+  kind : string option;
+  doc : string option;
+  args : constructor_arguments;
+}
 
 let jsont_sig_item ~loc ~name type_ =
   let open Ast_builder.Default in
@@ -135,15 +147,18 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
           (fun ({ prf_desc; _ } as rtag) ->
             match prf_desc with
             | Rinherit _ -> None
-            | Rtag (name, empty, cts) ->
+            | Rtag (real_name, empty, cts) ->
                 let user_name = Attribute.get Attributes.rtag_key rtag in
                 let args =
                   if empty || List.is_empty cts then Pcstr_tuple []
                   else Pcstr_tuple cts
                 in
-                Some (name, user_name, args))
+                let kind = Attribute.get Attributes.rtag_kind rtag in
+                let doc = Attribute.get Attributes.rtag_doc rtag in
+                Some { real_name; user_name; kind; doc; args })
           rfs
       in
+      (* TODO doc and kind *)
       of_variant_type ~loc:ptyp_loc ~kind:"variant" ~current_decls ~poly:true
         constrs
   | ct ->
@@ -155,7 +170,7 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       failwith msg
 
 and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
-    (constrs : (string with_loc * string option * constructor_arguments) list) =
+    (constrs : generic_constructor list) =
   let open Ast_builder.Default in
   let lid name = { name with txt = Lident name.txt } in
   let econstruct name =
@@ -174,7 +189,7 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
     (* Constructors have no argument, we use an enumeration *)
     let all_constrs =
       List.map
-        (fun (real_name, user_name, _) ->
+        (fun { real_name; user_name; _ } ->
           let name = Option.value ~default:real_name.txt user_name in
           let construct = econstruct ~loc real_name None in
           [%expr [%e estring ~loc name], [%e construct]])
@@ -185,10 +200,10 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
   let as_object_cases constrs =
     let constrs =
       List.fold_left
-        (fun acc (real_name, user_name, pcd_args) ->
+        (fun acc { real_name; user_name; kind; doc; args } ->
           let name = Option.value ~default:real_name.txt user_name in
           let arg =
-            match pcd_args with
+            match args with
             | Pcstr_tuple [] -> `No_arg
             | Pcstr_tuple [ first ] ->
                 `Should_wrap (of_core_type ~current_decls first)
@@ -198,6 +213,7 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
                 (* Inlined record are tricky because they need to be kept
                      under their type constructor at any time. *)
                 let inlined_constr = lid real_name in
+                let kind = Option.value kind ~default:real_name.txt in
                 `Inline_record
                   (of_record_type ~current_decls ~loc ~kind ?doc ~inlined_constr
                      labels)
@@ -212,11 +228,21 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
             | `Inline_record arg -> arg
             | `Should_wrap arg ->
                 let kind =
-                  estring ~loc:real_name.loc (real_name.txt ^ "__wrapper")
+                  estring ~loc:real_name.loc
+                  @@ Option.value kind ~default:real_name.txt
                 in
+                let args =
+                  let open A in
+                  let doc =
+                    Option.bind doc (fun doc ->
+                        labelled "doc" (estring ~loc doc))
+                  in
+                  make [ labelled "kind" kind; doc; no_label [%expr Fun.id] ]
+                in
+                let doc = estring ~loc ("Wrapper for " ^ real_name.txt) in
                 [%expr
-                  Jsont.Object.map ~kind:[%e kind] Fun.id
-                  |> Jsont.Object.mem "v" [%e arg] ~enc:Fun.id
+                  [%e pexp_apply ~loc [%expr Jsont.Object.map] args]
+                  |> Jsont.Object.mem "v" ~doc:[%e doc] [%e arg] ~enc:Fun.id
                   |> Jsont.Object.finish]
           in
           let mk_fun =
@@ -276,15 +302,23 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
            constrs
     in
     let cases = elist ~loc cases in
+    let map_args =
+      let doc =
+        Option.bind doc (fun doc -> A.labelled "doc" (estring ~loc doc))
+      in
+      [ A.labelled "kind" (estring ~loc kind); doc; A.no_label [%expr Fun.id] ]
+      |> A.make
+    in
+    let doc = estring ~loc ("Cases for " ^ kind) in
     pexp_let ~loc Nonrecursive bindings
       [%expr
-        Jsont.Object.map ~kind:[%e estring ~loc kind] Fun.id
-        |> Jsont.Object.case_mem "type" Jsont.string ~enc:Fun.id
+        [%e pexp_apply ~loc [%expr Jsont.Object.map] map_args]
+        |> Jsont.Object.case_mem "type" ~doc:[%e doc] Jsont.string ~enc:Fun.id
              ~enc_case:[%e enc_case] [%e cases]
         |> Jsont.Object.finish]
   in
-  if List.for_all (fun (_, _, pcd_args) -> pcd_args = Pcstr_tuple []) constrs
-  then as_enum constrs
+  if List.for_all (fun { args; _ } -> args = Pcstr_tuple []) constrs then
+    as_enum constrs
   else as_object_cases constrs
 
 (* Example from Jsont documentation:
@@ -442,7 +476,9 @@ let of_type_declaration ~derived_item_loc ~current_decls
           List.map
             (fun ({ pcd_name; pcd_args; _ } as cd) ->
               let user_name = Attribute.get Attributes.cd_key cd in
-              (pcd_name, user_name, pcd_args))
+              let kind = Attribute.get Attributes.cd_kind cd in
+              let doc = Attribute.get Attributes.cd_doc cd in
+              { real_name = pcd_name; user_name; kind; doc; args = pcd_args })
             constrs
         in
         of_variant_type ~loc ~kind ?doc ~current_decls constrs
@@ -530,7 +566,7 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
   let non_rec = rec_flag = Nonrecursive in
   let current_decls = decl_infos ~non_rec tds in
   let () =
-    if debug then
+    if debug then begin
       List.iter
         (fun (rec_flag, decls) ->
           Format.eprintf "Group %a:\n%!" pp_rec_flag rec_flag;
@@ -538,7 +574,8 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
             (fun _ infos -> Format.eprintf "%a\n%!" pp_decl_infos infos)
             decls)
         current_decls;
-    Format.eprintf "\n%!"
+      Format.eprintf "\n%!"
+    end
   in
   let decls =
     List.map

@@ -48,3 +48,40 @@ let u_jsont =
 let _ = u_jsont
 
 [@@@ppxlib.inline.end]
+
+
+type v = A of int [@key "Id"][@kind "One of A kind"] | S of sort | R of { name : string [@doc "Doc for R.name"] }[@doc "Doc for R"]
+  [@@doc "Type v"][@@deriving_inline jsont]
+
+let _ = fun (_ : v) -> ()
+let v_jsont =
+  let jsont__R =
+    Jsont.Object.Case.map "R"
+      (Jsont.Object.finish
+         (Jsont.Object.mem "name" ~doc:"Doc for R.name" Jsont.string
+            ~enc:((fun (R t) -> t.name)[@ocaml.warning "-8"])
+            (Jsont.Object.map ~doc:"Doc for R" ~kind:"R"
+               (fun name -> R { name })))) ~dec:Fun.id
+  and jsont__S =
+    Jsont.Object.Case.map "S"
+      (((Jsont.Object.map ~kind:"S" Fun.id) |>
+          (Jsont.Object.mem "v" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id))
+         |> Jsont.Object.finish) ~dec:(fun arg -> S arg)
+  and jsont__A =
+    Jsont.Object.Case.map "Id"
+      (((Jsont.Object.map ~kind:"One of A kind" Fun.id) |>
+          (Jsont.Object.mem "v" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id))
+         |> Jsont.Object.finish) ~dec:(fun arg -> A arg) in
+  ((Jsont.Object.map ~kind:"V" ~doc:"Type v" Fun.id) |>
+     (Jsont.Object.case_mem "type" ~doc:"Cases for V" Jsont.string
+        ~enc:Fun.id
+        ~enc_case:(function
+                   | R t -> Jsont.Object.Case.value jsont__R (R t)
+                   | S t -> Jsont.Object.Case.value jsont__S t
+                   | A t -> Jsont.Object.Case.value jsont__A t)
+        [Jsont.Object.Case.make jsont__R;
+        Jsont.Object.Case.make jsont__S;
+        Jsont.Object.Case.make jsont__A]))
+    |> Jsont.Object.finish
+let _ = v_jsont
+[@@@ppxlib.inline.end]
