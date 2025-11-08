@@ -132,27 +132,37 @@ let decl_infos ~non_rec (decls : type_declaration list) =
      let rec t = u and u = 4;;
      Error: This kind of expression is not allowed as right-hand side of let rec
   *)
+  (* TODO This part is due a refactor at some point. *)
   (* If a more performant algorithm is needed this looks like a good candidate
      for union find. *)
   let result =
     Map.fold
       (fun name decl acc ->
-        if not decl.self_rec then Array.append acc [| Map.singleton name decl |]
+        if not decl.self_rec then
+          Array.append acc [| `Single (Map.singleton name decl) |]
         else
           match
             Array.find_index
-              (Map.exists (fun _ decl ->
-                   decl.self_rec && Set.mem name decl.requires))
+              (function
+                | `Single _ -> false
+                | `Rec m ->
+                    Map.exists
+                      (fun _ decl ->
+                        decl.self_rec && Set.mem name decl.requires)
+                      m)
               acc
           with
-          | None -> Array.append acc [| Map.singleton name decl |]
+          | None -> Array.append acc [| `Rec (Map.singleton name decl) |]
           | Some i ->
-              Array.set acc i (Map.add name decl acc.(i));
+              Array.set acc i
+                (match acc.(i) with
+                | `Rec m -> `Rec (Map.add name decl m)
+                | `Single _ -> assert false);
               acc)
       decls [||]
   in
   Array.sort
-    (fun ds1 ds2 ->
+    (fun (`Single ds1 | `Rec ds1) (`Single ds2 | `Rec ds2) ->
       let ds2_requires_ds1 =
         Map.exists
           (fun _ d -> Set.exists (fun name -> Map.mem name ds1) d.requires)

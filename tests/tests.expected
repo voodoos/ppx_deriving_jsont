@@ -4,3 +4,5 @@
 ["A","B"]
 [{"type":"A","v":3},{"type":"'B"}]
 {"v":{"type":"D","v":{"name":"d","v":{"type":"Empty"}}}}
+{"type":"T2","v":{"type":"A","v":4}}
+{"type":"R2","v":{"type":"N","v":{"type":"S","v":{"type":"S2","v":{"type":"Z"}}}}}

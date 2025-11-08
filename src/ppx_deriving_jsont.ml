@@ -459,26 +459,12 @@ let jsont_value_binding ~loc ~non_rec (decls : decl Map.t) =
       (Map.to_list decls)
     |> List.split
   in
-  let is_rec =
-    (* Are some of these declarations cross-referencing ?
-       (Note: this is weaker than being mutually recursive,
-            this is in fact not recursion)
-
-       And broken in some not-really recursive cases:
-       let rec t = u and u = 4;;
-       Error: This kind of expression is not allowed as
-       right-hand side of let rec *)
-    (not non_rec)
-    && Map.exists
-         (fun _ { infos = { requires; _ }; _ } -> not (Set.is_empty requires))
-         decls
-  in
   match bindings with
   (* Special case for lone decls that are not recursive *)
-  | [ binding ] when not is_rec -> binding
+  | [ binding ] when non_rec -> binding
   | _ ->
       let expr =
-        let rec_flag = if is_rec then Recursive else Nonrecursive in
+        let rec_flag = if non_rec then Nonrecursive else Recursive in
         pexp_let ~loc rec_flag bindings (pexp_tuple ~loc values)
       in
       let names =
@@ -497,22 +483,34 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
   let () =
     if debug then
       List.iter
-        (fun decls ->
+        (fun (`Single decls | `Rec decls) ->
+          Format.eprintf "Group:\n%!";
           Map.iter
             (fun _ infos -> Format.eprintf "%a\n%!" pp_decl_infos infos)
             decls)
-        current_decls
+        current_decls;
+    Format.eprintf "\n%!"
   in
   let decls =
+    let map_decls decls =
+      Map.map (of_type_declaration ~derived_item_loc ~current_decls:decls) decls
+    in
     List.map
-      (fun decls ->
-        Map.map
-          (of_type_declaration ~derived_item_loc ~current_decls:decls)
-          decls)
+      (function
+        | `Single decls -> `Single (map_decls decls)
+        | `Rec decls -> `Rec (map_decls decls))
       current_decls
   in
   let bindings =
-    List.map (jsont_value_binding ~non_rec ~loc:derived_item_loc) decls
+    List.map
+      (fun decls ->
+        let non_rec, decls =
+          match decls with
+          | `Single decls -> (true, decls)
+          | `Rec decls -> (non_rec, decls)
+        in
+        jsont_value_binding ~non_rec ~loc:derived_item_loc decls)
+      decls
   in
   List.map
     (fun b -> pstr_value ~loc:derived_item_loc Nonrecursive [ b ])
