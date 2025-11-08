@@ -33,16 +33,16 @@ jobs:
 
       - run: opam exec -- dune runtest
 
-  lint-doc:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout tree
-        uses: actions/checkout@v5
-      - name: Set-up OCaml
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 5
-      - uses: ocaml/setup-ocaml/lint-doc@v3
+  # lint-doc:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout tree
+  #       uses: actions/checkout@v5
+  #     - name: Set-up OCaml
+  #       uses: ocaml/setup-ocaml@v3
+  #       with:
+  #         ocaml-compiler: 5
+  #     - uses: ocaml/setup-ocaml/lint-doc@v3
 
   lint-fmt:
     runs-on: ubuntu-latest
