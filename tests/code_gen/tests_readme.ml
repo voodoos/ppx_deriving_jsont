@@ -13,6 +13,7 @@ type t = {
   ids : string list; [@default []] [@omit List.is_empty]
   sort : sort; [@key "Sort"]
 } [@@kind "T2"]
+[@@doc "A t object"]
 [@@deriving_inline jsont]
 
 and u = { x : t } [@@kind "U2"]
@@ -33,7 +34,7 @@ let jsont =
                   ~enc_omit:Option.is_none
                   (Jsont.Object.mem "name" ~doc:"The name of the object"
                      Jsont.string ~enc:(fun t -> t.name)
-                     (Jsont.Object.map ~kind:"T2"
+                     (Jsont.Object.map ~doc:"A t object" ~kind:"T2"
                         (fun name maybe_parent ids sort ->
                            { name; maybe_parent; ids; sort }))))))) in
   Lazy.force jsont

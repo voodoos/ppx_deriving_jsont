@@ -53,6 +53,12 @@ module Attributes = struct
   let ld_doc = doc Attribute.Context.label_declaration
 end
 
+module A = struct
+  let labelled l e = Some (Labelled l, e)
+  let no_label e = Some (Nolabel, e)
+  let make = List.filter_map Fun.id
+end
+
 let deriver = "jsont"
 
 let jsont_name type_name =
@@ -304,7 +310,7 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
     end
 *)
 (* Translates records to javascript objects *)
-and of_record_type ~current_decls ~loc ~kind ?doc:_ ?inlined_constr labels =
+and of_record_type ~current_decls ~loc ~kind ?doc ?inlined_constr labels =
   let open Ast_builder.Default in
   (* Jsont needs a function to construct the record *)
   let make_fun =
@@ -326,6 +332,16 @@ and of_record_type ~current_decls ~loc ~kind ?doc:_ ?inlined_constr labels =
       (fun acc { pld_name = { txt = name; loc }; _ } ->
         pexp_fun ~loc Nolabel None (pvar ~loc name) acc)
       wrapped_record (List.rev labels)
+  in
+  let map =
+    let args =
+      let doc =
+        Option.bind doc (fun doc -> A.labelled "doc" (estring ~loc doc))
+      in
+      [ doc; A.labelled "kind" (estring ~loc kind); A.no_label make_fun ]
+      |> A.make
+    in
+    pexp_apply ~loc [%expr Jsont.Object.map] args
   in
   let mems =
     List.fold_left
@@ -384,8 +400,7 @@ and of_record_type ~current_decls ~loc ~kind ?doc:_ ?inlined_constr labels =
         in
         let loc = ld.pld_loc in
         let args =
-          let labelled l e = Some (Labelled l, e) in
-          let no_label e = Some (Nolabel, e) in
+          let open A in
           let name = estring ~loc:name_loc jsont_name in
           let doc =
             Option.bind doc (fun doc ->
@@ -402,10 +417,10 @@ and of_record_type ~current_decls ~loc ~kind ?doc:_ ?inlined_constr labels =
             enc_omit;
             no_label acc;
           ]
+          |> make
         in
-        pexp_apply ~loc [%expr Jsont.Object.mem] (List.filter_map Fun.id args))
-      [%expr Jsont.Object.map ~kind:[%e estring ~loc kind] [%e make_fun]]
-      labels
+        pexp_apply ~loc [%expr Jsont.Object.mem] args)
+      map labels
   in
   [%expr Jsont.Object.finish [%e mems]]
 
