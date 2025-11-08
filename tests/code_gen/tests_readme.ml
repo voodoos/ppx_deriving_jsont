@@ -50,7 +50,10 @@ let _ = u_jsont
 [@@@ppxlib.inline.end]
 
 
-type v = A of int [@key "Id"][@kind "One of A kind"] | S of sort | R of { name : string [@doc "Doc for R.name"] }[@doc "Doc for R"]
+type v =
+    A of int [@key "Id"][@kind "One of A kind"] 
+  | S of sort  [@doc "Doc for S"]
+  | R of { name : string [@doc "Doc for R.name"] }[@doc "Doc for R"]
   [@@doc "Type v"][@@deriving_inline jsont]
 
 let _ = fun (_ : v) -> ()
@@ -64,7 +67,7 @@ let v_jsont =
                (fun name -> R { name })))) ~dec:Fun.id
   and jsont__S =
     Jsont.Object.Case.map "S"
-      (((Jsont.Object.map ~kind:"S" Fun.id) |>
+      (((Jsont.Object.map ~kind:"S" ~doc:"Doc for S" Fun.id) |>
           (Jsont.Object.mem "v" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id))
          |> Jsont.Object.finish) ~dec:(fun arg -> S arg)
   and jsont__A =
