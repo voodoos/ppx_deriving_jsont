@@ -1,3 +1,4 @@
+(* Enums *)
 type sort = A | X [@key "B"] | C
 [@@kind "sort"] [@@doc "some doc"] [@@deriving_inline jsont]
 
@@ -9,6 +10,47 @@ let sort_jsont =
 let _ = sort_jsont
 
 [@@@ppxlib.inline.end]
+
+(* Tuples *)
+
+type tup = int * string [@@deriving_inline jsont]
+
+let tup_jsont =
+  let get_or_raise = function
+    | Ok r -> r
+    | Error err -> raise (Jsont.Error err)
+  in
+  let enc f acc (i, s) =
+    let i = Jsont.Json.encode' Jsont.int i |> get_or_raise in
+    let s = Jsont.Json.encode' Jsont.string s |> get_or_raise in
+    f (f acc 0 i) 1 s
+  in
+  let dec_empty () = (None, None) in
+  let dec_add =
+   fun i elt (e1, e2) ->
+    match i with
+    | 0 ->
+        let i = Jsont.Json.decode' Jsont.int elt |> get_or_raise in
+        (Some i, e2)
+    | 1 ->
+        let s = Jsont.Json.decode' Jsont.string elt |> get_or_raise in
+        (e1, Some s)
+    | _ -> Jsont.(Error.msgf Meta.none "Too many elements for tuple.")
+  in
+  let dec_finish meta _ (a, b) =
+    let get_or_raise i o =
+      match o with
+      | Some v -> v
+      | None -> Jsont.Error.msgf meta "Missing tuple member #%i" i
+    in
+    (get_or_raise 0 a, get_or_raise 1 b)
+  in
+  Jsont.Array.map ~enc:{ enc } ~dec_empty ~dec_add ~dec_finish Jsont.json
+  |> Jsont.Array.array
+
+[@@@ppxlib.inline.end]
+
+(* Records *)
 
 type t = {
   name : string; [@jsont.doc "The name of the object"]
