@@ -43,6 +43,7 @@ module Attributes = struct
       Fun.id
 
   let td_kind = kind Attribute.Context.type_declaration
+  let ct_kind = kind Attribute.Context.core_type
   let cd_kind = kind Attribute.Context.constructor_declaration
   let rtag_kind = kind Attribute.Context.rtag
 
@@ -52,6 +53,7 @@ module Attributes = struct
       Fun.id
 
   let td_doc = doc Attribute.Context.type_declaration
+  let ct_doc = doc Attribute.Context.core_type
   let ld_doc = doc Attribute.Context.label_declaration
   let cd_doc = doc Attribute.Context.constructor_declaration
   let rtag_doc = doc Attribute.Context.rtag
@@ -161,6 +163,10 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       (* TODO doc and kind *)
       of_variant_type ~loc:ptyp_loc ~kind:"variant" ~current_decls ~poly:true
         constrs
+  | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
+      let kind = Attribute.get Attributes.ct_kind core_type in
+      let doc = Attribute.get Attributes.ct_doc core_type in
+      of_tuple ~current_decls ~loc:ptyp_loc ?kind ?doc cts
   | ct ->
       let msg =
         Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
@@ -168,6 +174,29 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       in
       (* TODO better ppx error handling *)
       failwith msg
+
+and of_tuple ~current_decls ~loc ?kind ?doc cts =
+  let open Ast_builder.Default in
+  let elements =
+    List.mapi
+      (fun i ct ->
+        (i, "t" ^ string_of_int i, ct.ptyp_loc, of_core_type ~current_decls ct))
+      cts
+  in
+  let enc =
+    let _ = () in
+    List.map
+      (fun (_, id, loc, arg_jsont) ->
+        let pat = ppat_var ~loc { txt = id; loc } in
+        let expr =
+          (* let lid = pexp_ident ~loc { txt = lident id; loc } in *)
+          [%expr
+            Jsont.Json.encode' [%e arg_jsont] [%lid lident id] |> get_or_raise]
+        in
+        pexp_let ~loc Nonrecursive [ value_binding ~loc ~pat ~expr ])
+      elements
+  in
+  assert false
 
 and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
     (constrs : generic_constructor list) =
