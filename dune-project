@@ -15,8 +15,9 @@
  (allow_empty)
  (name ppx_deriving_jsont)
  (synopsis "A ppx deriver for Jsont")
- (description "A _really_ long description")
+ (description "A convenient tool to generate Jsont descriptions for various OCaml types.")
  (depends
-  ppxlib
-  jsont
+  (ppxlib (>= 0.36.0))
+  (jsont :with-test)
+  (jsont_bytesrw :with-test)
   (bytesrw :with-test)))
