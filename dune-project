@@ -20,5 +20,5 @@
  (description "A convenient tool to generate Jsont descriptions for various OCaml types.")
  (depends
   (ppxlib (>= 0.36.0))
-  (jsont :with-test)
+  jsont
   (bytesrw :with-test)))
