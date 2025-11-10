@@ -342,8 +342,10 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
             | Pcstr_tuple [] -> `No_arg
             | Pcstr_tuple [ first ] ->
                 `Should_wrap (of_core_type ~current_decls first)
-            | Pcstr_tuple (_ :: _) ->
-                failwith "ppx_deriving_jsont: not implemented: tuples"
+            | Pcstr_tuple cts ->
+                let kind = Option.map (estring ~loc) kind in
+                let doc = Option.map (estring ~loc) doc in
+                `Should_wrap (of_tuple ~current_decls ~loc ?kind ?doc cts)
             | Pcstr_record labels ->
                 (* Inlined record are tricky because they need to be kept
                      under their type constructor at any time. *)

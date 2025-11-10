@@ -72,3 +72,8 @@ type tup = int * string * unit t [@@deriving jsont]
 
 let v : tup = (42, "quarante-deux", { name = None; v = Empty })
 let () = assert (v = print_and_recode tup_jsont v)
+
+type var_tup = T of (int * pv2) [@@deriving jsont]
+
+let v : var_tup = T (36, `B)
+let () = assert (v = print_and_recode var_tup_jsont v)
