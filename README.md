@@ -33,7 +33,7 @@ be happy to improve.
 - [x] Mutually recursive types
 - [ ] Support for all meaningful base types
 - [ ] Options (in the form of attributes)
-    - [ ] to pass custom Jsont values
+    - [x] to pass custom Jsont values
     - [ ] for finer support of integers
     - [ ] for finer settings
     - [x] to provide `doc` comments
@@ -89,6 +89,11 @@ when used on base types.
 
 The `kind` value usually defaults to the name of the type, the `doc` value to
 `None`.
+
+### Core types attribute
+
+Users can overide any core type deriving byt providing their own `Jsont.t`
+description using the `[@jsont <value>]` attribute.
 
 ### Basic types (with parameters)
 
@@ -397,4 +402,3 @@ let v_jsont =
 ```json
 [{"type":"S","v":"B"},{"type":"Id","v":42}]
 ```
-

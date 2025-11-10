@@ -32,6 +32,13 @@ module Attributes = struct
   let cd_nowrap = nowrap Attribute.Context.constructor_declaration
   let rtag_nowrap = nowrap Attribute.Context.rtag
 
+  let jsont context =
+    Attribute.declare "deriving.jsont.jsont" context
+      Ast_pattern.(single_expr_payload __)
+      Fun.id
+
+  let ct_jsont = jsont Attribute.Context.core_type
+
   let default context =
     (* This is for compatibility with [ppx_yojson_conv], [absent] is more
        idiomatic to Jsont. *)
@@ -128,101 +135,105 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
     =
   let of_core_type = of_core_type ~current_decls in
   let loc = core_type.ptyp_loc in
-  (* TODO we should provide finer user control for handling int and floats *)
-  match core_type with
-  | [%type: unit] -> [%expr Jsont.null ()]
-  | [%type: string] -> [%expr Jsont.string]
-  | [%type: bool] -> [%expr Jsont.bool]
-  | [%type: float] -> [%expr Jsont.number]
-  | [%type: int] -> [%expr Jsont.int]
-  | [%type: int32] -> [%expr Jsont.int32]
-  | [%type: int64] -> [%expr Jsont.int64]
-  | [%type: [%t? typ] option] -> [%expr Jsont.option [%e of_core_type typ]]
-  | [%type: [%t? typ] list] -> [%expr Jsont.list [%e of_core_type typ]]
-  | [%type: [%t? typ] array] -> [%expr Jsont.array [%e of_core_type typ]]
-  | { ptyp_desc = Ptyp_constr ({ txt = lid; loc }, args); _ } ->
-      (* TODO: quoting ? *)
-      let is_rec =
-        match lid with
-        | Lident name -> (
-            match Map.find_opt name current_decls with
-            | None -> false
-            | Some { self_rec; _ } -> self_rec)
-        | _ -> false
-      in
-      let args = List.map of_core_type args in
-      let ident =
-        Exp.ident
-          (Loc.make ~loc
-             (Ppxlib.Expansion_helpers.mangle_lid (Suffix "jsont") lid))
-      in
-      let with_args =
-        match args with
-        | _ :: _ ->
-            Exp.apply ident
-              (List.map (fun arg -> (Nolabel, arg)) (List.rev args))
-        | _ -> ident
-      in
-      let expr =
-        if is_rec then [%expr Jsont.rec' [%e with_args]] else with_args
-      in
-      expr
-  | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
-      Exp.ident (Loc.make ~loc:ptyp_loc (Lident (jsont_type_var label)))
-  | { ptyp_desc = Ptyp_variant (rfs, _, _); ptyp_loc; _ } ->
-      let kind =
-        match Attribute.get Attributes.ct_kind core_type with
-        | Some kind -> kind
-        | None -> Option.value kind ~default:"variant"
-      in
-      let doc =
-        Attribute.get Attributes.ct_doc core_type
-        |> Option.fold ~none:doc ~some:Option.some
-      in
-      let type_key = Attribute.get Attributes.ct_type_key core_type in
-      let wrap_key = Attribute.get Attributes.ct_wrap_key core_type in
-      let constrs =
-        List.filter_map
-          (fun ({ prf_desc; _ } as rtag) ->
-            match prf_desc with
-            | Rinherit _ -> None
-            | Rtag (real_name, empty, cts) ->
-                let user_name = Attribute.get Attributes.rtag_key rtag in
-                let args =
-                  if empty || List.is_empty cts then Pcstr_tuple []
-                  else Pcstr_tuple cts
-                in
-                let kind = Attribute.get Attributes.rtag_kind rtag in
-                let doc = Attribute.get Attributes.rtag_doc rtag in
-                let nowrap =
-                  Attribute.get Attributes.rtag_nowrap rtag
-                  |> Option.fold ~none:false ~some:(fun () -> true)
-                in
-                Some { real_name; user_name; kind; doc; nowrap; args })
-          rfs
-      in
-      of_variant_type ~loc:ptyp_loc ~kind ?doc ?type_key ?wrap_key
-        ~current_decls ~poly:true constrs
-  | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
-      let open Ast_builder.Default in
-      let kind =
-        Attribute.get Attributes.ct_kind core_type
-        |> Option.fold ~none:kind ~some:Option.some
-        |> Option.map (estring ~loc)
-      in
-      let doc =
-        Attribute.get Attributes.ct_doc core_type
-        |> Option.fold ~none:doc ~some:Option.some
-        |> Option.map (estring ~loc)
-      in
-      of_tuple ~current_decls ~loc:ptyp_loc ?kind ?doc cts
-  | ct ->
-      let msg =
-        Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
-          (Ppxlib.string_of_core_type ct)
-      in
-      (* TODO better ppx error handling *)
-      failwith msg
+  let user_provided = Attribute.get Attributes.ct_jsont core_type in
+  match user_provided with
+  | Some expr -> expr
+  | None -> (
+      (* TODO we should provide finer user control for handling int and floats *)
+      match core_type with
+      | [%type: unit] -> [%expr Jsont.null ()]
+      | [%type: string] -> [%expr Jsont.string]
+      | [%type: bool] -> [%expr Jsont.bool]
+      | [%type: float] -> [%expr Jsont.number]
+      | [%type: int] -> [%expr Jsont.int]
+      | [%type: int32] -> [%expr Jsont.int32]
+      | [%type: int64] -> [%expr Jsont.int64]
+      | [%type: [%t? typ] option] -> [%expr Jsont.option [%e of_core_type typ]]
+      | [%type: [%t? typ] list] -> [%expr Jsont.list [%e of_core_type typ]]
+      | [%type: [%t? typ] array] -> [%expr Jsont.array [%e of_core_type typ]]
+      | { ptyp_desc = Ptyp_constr ({ txt = lid; loc }, args); _ } ->
+          (* TODO: quoting ? *)
+          let is_rec =
+            match lid with
+            | Lident name -> (
+                match Map.find_opt name current_decls with
+                | None -> false
+                | Some { self_rec; _ } -> self_rec)
+            | _ -> false
+          in
+          let args = List.map of_core_type args in
+          let ident =
+            Exp.ident
+              (Loc.make ~loc
+                 (Ppxlib.Expansion_helpers.mangle_lid (Suffix "jsont") lid))
+          in
+          let with_args =
+            match args with
+            | _ :: _ ->
+                Exp.apply ident
+                  (List.map (fun arg -> (Nolabel, arg)) (List.rev args))
+            | _ -> ident
+          in
+          let expr =
+            if is_rec then [%expr Jsont.rec' [%e with_args]] else with_args
+          in
+          expr
+      | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
+          Exp.ident (Loc.make ~loc:ptyp_loc (Lident (jsont_type_var label)))
+      | { ptyp_desc = Ptyp_variant (rfs, _, _); ptyp_loc; _ } ->
+          let kind =
+            match Attribute.get Attributes.ct_kind core_type with
+            | Some kind -> kind
+            | None -> Option.value kind ~default:"variant"
+          in
+          let doc =
+            Attribute.get Attributes.ct_doc core_type
+            |> Option.fold ~none:doc ~some:Option.some
+          in
+          let type_key = Attribute.get Attributes.ct_type_key core_type in
+          let wrap_key = Attribute.get Attributes.ct_wrap_key core_type in
+          let constrs =
+            List.filter_map
+              (fun ({ prf_desc; _ } as rtag) ->
+                match prf_desc with
+                | Rinherit _ -> None
+                | Rtag (real_name, empty, cts) ->
+                    let user_name = Attribute.get Attributes.rtag_key rtag in
+                    let args =
+                      if empty || List.is_empty cts then Pcstr_tuple []
+                      else Pcstr_tuple cts
+                    in
+                    let kind = Attribute.get Attributes.rtag_kind rtag in
+                    let doc = Attribute.get Attributes.rtag_doc rtag in
+                    let nowrap =
+                      Attribute.get Attributes.rtag_nowrap rtag
+                      |> Option.fold ~none:false ~some:(fun () -> true)
+                    in
+                    Some { real_name; user_name; kind; doc; nowrap; args })
+              rfs
+          in
+          of_variant_type ~loc:ptyp_loc ~kind ?doc ?type_key ?wrap_key
+            ~current_decls ~poly:true constrs
+      | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
+          let open Ast_builder.Default in
+          let kind =
+            Attribute.get Attributes.ct_kind core_type
+            |> Option.fold ~none:kind ~some:Option.some
+            |> Option.map (estring ~loc)
+          in
+          let doc =
+            Attribute.get Attributes.ct_doc core_type
+            |> Option.fold ~none:doc ~some:Option.some
+            |> Option.map (estring ~loc)
+          in
+          of_tuple ~current_decls ~loc:ptyp_loc ?kind ?doc cts
+      | ct ->
+          let msg =
+            Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
+              (Ppxlib.string_of_core_type ct)
+          in
+          (* TODO better ppx error handling *)
+          failwith msg)
 
 (* Tuples are encoded as json arrays *)
 and of_tuple ~current_decls ~loc ?kind ?doc cts =

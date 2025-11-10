@@ -161,3 +161,12 @@ let v_jsont =
 let _ = v_jsont
 
 [@@@ppxlib.inline.end]
+
+(* User defined *)
+type ud = (int[@jsont Jsont.int64]) [@@deriving_inline jsont]
+
+let _ = fun (_ : ud) -> ()
+let ud_jsont = Jsont.int64
+let _ = ud_jsont
+
+[@@@ppxlib.inline.end]
