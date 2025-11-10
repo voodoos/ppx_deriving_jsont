@@ -1,5 +1,7 @@
 (lang dune 3.17)
 
+(name ppx_deriving_jsont)
+
 (generate_opam_files)
 
 (source
