@@ -316,13 +316,15 @@ The default `type_key` is `"type"`. Values that are not inlined-records are wrap
 In the future we plan to also support the more traditional encoding variant as
 arrays.
 
+Polymorphic variant behaves similarly.
+
 #### Type declaration attributes
 - `@@kind <string>` and `@@doc <string>`
 - `@@type_key <string>` specifies the name of the JSON field used to distinguish
   cases. This should not be `v` which is used as a wrapper for constructor
   arguments, or any of the member of an inlined record. Defaults to `type`.
 - `@@wrap_key <string>` specifies the name of the JSON field used to wrap values
-  other than inlined records or records with the `unwrap` attribute. Defaults to
+  other than inlined records or records with the `nowrap` attribute. Defaults to
   `v`.
 
 #### Constructors attributes
@@ -330,7 +332,7 @@ arrays.
   constructor itself)
 - `@doc <string>` to document constructors
 - `@kind <string>` to specify the kind of inlined-records
-- `@unwrap` can be used on constructors whose only argument is the type of a record
+- `@nowrap` can be used on constructors whose only argument is the type of a record
 
 For inlined record
 

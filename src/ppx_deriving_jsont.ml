@@ -28,6 +28,9 @@ module Attributes = struct
 
   let td_wrap_key = wrap_key Attribute.Context.type_declaration
   let ct_wrap_key = wrap_key Attribute.Context.core_type
+  let nowrap ctx = Attribute.declare_flag "deriving.jsont.nowrap" ctx
+  let cd_nowrap = nowrap Attribute.Context.constructor_declaration
+  let rtag_nowrap = nowrap Attribute.Context.rtag
 
   let default context =
     (* This is for compatibility with [ppx_yojson_conv], [absent] is more
@@ -108,6 +111,7 @@ type generic_constructor = {
   user_name : string option;
   kind : string option;
   doc : string option;
+  nowrap : bool;
   args : constructor_arguments;
 }
 
@@ -190,7 +194,11 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
                 in
                 let kind = Attribute.get Attributes.rtag_kind rtag in
                 let doc = Attribute.get Attributes.rtag_doc rtag in
-                Some { real_name; user_name; kind; doc; args })
+                let nowrap =
+                  Attribute.get Attributes.rtag_nowrap rtag
+                  |> Option.fold ~none:false ~some:(fun () -> true)
+                in
+                Some { real_name; user_name; kind; doc; nowrap; args })
           rfs
       in
       of_variant_type ~loc:ptyp_loc ~kind ?doc ?type_key ?wrap_key
@@ -366,13 +374,14 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
   let as_object_cases constrs =
     let constrs =
       List.fold_left
-        (fun acc { real_name; user_name; kind; doc; args } ->
+        (fun acc { real_name; user_name; kind; doc; nowrap; args } ->
           let name = Option.value ~default:real_name.txt user_name in
           let arg =
             match args with
             | Pcstr_tuple [] -> `No_arg
             | Pcstr_tuple [ first ] ->
-                `Should_wrap (of_core_type ~current_decls first)
+                let ct = of_core_type ~current_decls first in
+                if nowrap then `No_wrap ct else `Should_wrap ct
             | Pcstr_tuple cts ->
                 let kind = Option.map (estring ~loc) kind in
                 let doc = Option.map (estring ~loc) doc in
@@ -394,6 +403,7 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
             match arg with
             | `No_arg -> [%expr Jsont.Object.zero]
             | `Inline_record arg -> arg
+            | `No_wrap arg -> arg
             | `Should_wrap arg ->
                 let kind =
                   estring ~loc:real_name.loc
@@ -656,7 +666,18 @@ let of_type_declaration ~derived_item_loc ~current_decls
               let user_name = Attribute.get Attributes.cd_key cd in
               let kind = Attribute.get Attributes.cd_kind cd in
               let doc = Attribute.get Attributes.cd_doc cd in
-              { real_name = pcd_name; user_name; kind; doc; args = pcd_args })
+              let nowrap =
+                Attribute.get Attributes.cd_nowrap cd
+                |> Option.fold ~none:false ~some:(fun () -> true)
+              in
+              {
+                real_name = pcd_name;
+                user_name;
+                kind;
+                doc;
+                nowrap;
+                args = pcd_args;
+              })
             constrs
         in
         let type_key = Attribute.get Attributes.td_type_key infos.ast in

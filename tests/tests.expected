@@ -8,3 +8,4 @@
 {"type":"R2","v":{"type":"N","v":{"type":"S","v":{"type":"S2","v":{"type":"Z"}}}}}
 [42,"quarante-deux",{"v":{"type":"Empty"}}]
 {"type":"T","v":[36,{"type":"'B"}]}
+{"type":"NW","name":"B","next":null}

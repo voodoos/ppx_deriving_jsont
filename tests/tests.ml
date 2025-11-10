@@ -78,3 +78,9 @@ type var_tup = T of (int * pv2) [@@deriving jsont]
 
 let v : var_tup = T (36, `B)
 let () = assert (v = print_and_recode var_tup_jsont v)
+
+(* Nowrap *)
+type now = NW of u [@nowrap] [@@deriving jsont]
+
+let v : now = NW { name = X; next = None }
+let () = assert (v = print_and_recode now_jsont v)
