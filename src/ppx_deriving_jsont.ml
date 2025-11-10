@@ -21,6 +21,14 @@ module Attributes = struct
   let td_type_key = type_key Attribute.Context.type_declaration
   let ct_type_key = type_key Attribute.Context.core_type
 
+  let wrap_key ctx =
+    Attribute.declare "deriving.jsont.wrap_key" ctx
+      Ast_pattern.(single_expr_payload (estring __))
+      Fun.id
+
+  let td_wrap_key = wrap_key Attribute.Context.type_declaration
+  let ct_wrap_key = wrap_key Attribute.Context.core_type
+
   let default context =
     (* This is for compatibility with [ppx_yojson_conv], [absent] is more
        idiomatic to Jsont. *)
@@ -168,6 +176,7 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
         |> Option.fold ~none:doc ~some:Option.some
       in
       let type_key = Attribute.get Attributes.ct_type_key core_type in
+      let wrap_key = Attribute.get Attributes.ct_wrap_key core_type in
       let constrs =
         List.filter_map
           (fun ({ prf_desc; _ } as rtag) ->
@@ -184,8 +193,8 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
                 Some { real_name; user_name; kind; doc; args })
           rfs
       in
-      of_variant_type ~loc:ptyp_loc ~kind ?doc ?type_key ~current_decls
-        ~poly:true constrs
+      of_variant_type ~loc:ptyp_loc ~kind ?doc ?type_key ?wrap_key
+        ~current_decls ~poly:true constrs
   | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
       let open Ast_builder.Default in
       let kind =
@@ -326,8 +335,8 @@ and of_tuple ~current_decls ~loc ?kind ?doc cts =
     let dec_finish = [%e dec_finish] in
     [%e jsont_array_map] |> Jsont.Array.array]
 
-and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ~current_decls
-    ?(poly = false) (constrs : generic_constructor list) =
+and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
+    ~current_decls ?(poly = false) (constrs : generic_constructor list) =
   let open Ast_builder.Default in
   let lid name = { name with txt = Lident name.txt } in
   let econstruct name =
@@ -399,9 +408,11 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ~current_decls
                   make [ labelled "kind" kind; doc; no_label [%expr Fun.id] ]
                 in
                 let doc = estring ~loc ("Wrapper for " ^ real_name.txt) in
+                let wrap_key = estring ~loc wrap_key in
                 [%expr
                   [%e pexp_apply ~loc [%expr Jsont.Object.map] args]
-                  |> Jsont.Object.mem "v" ~doc:[%e doc] [%e arg] ~enc:Fun.id
+                  |> Jsont.Object.mem [%e wrap_key] ~doc:[%e doc] [%e arg]
+                       ~enc:Fun.id
                   |> Jsont.Object.finish]
           in
           let mk_fun =
@@ -649,7 +660,9 @@ let of_type_declaration ~derived_item_loc ~current_decls
             constrs
         in
         let type_key = Attribute.get Attributes.td_type_key infos.ast in
-        of_variant_type ~loc ~kind ?doc ?type_key ~current_decls constrs
+        let wrap_key = Attribute.get Attributes.td_wrap_key infos.ast in
+        of_variant_type ~loc ~kind ?doc ?type_key ?wrap_key ~current_decls
+          constrs
     | Ptype_record labels ->
         let expr = of_record_type ~current_decls ~loc ~kind ?doc labels in
         expr

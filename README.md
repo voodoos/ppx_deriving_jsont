@@ -311,7 +311,7 @@ let jsont =
 Variants are encoded using ["object types" as described in the
 cookbook](https://erratique.ch/software/jsont/doc/cookbook.html#cases).
 
-The default `type_key` is `"type"`.
+The default `type_key` is `"type"`. Values that are not inlined-records are wrapped with the key `v`.
 
 In the future we plan to also support the more traditional encoding variant as
 arrays.
@@ -320,13 +320,17 @@ arrays.
 - `@@kind <string>` and `@@doc <string>`
 - `@@type_key <string>` specifies the name of the JSON field used to distinguish
   cases. This should not be `v` which is used as a wrapper for constructor
-  arguments, or any of the member of an inlined record.
+  arguments, or any of the member of an inlined record. Defaults to `type`.
+- `@@wrap_key <string>` specifies the name of the JSON field used to wrap values
+  other than inlined records or records with the `unwrap` attribute. Defaults to
+  `v`.
 
 #### Constructors attributes
 - `@key <string>` specifies the JSON name (otherwise the same as the
   constructor itself)
 - `@doc <string>` to document constructors
 - `@kind <string>` to specify the kind of inlined-records
+- `@unwrap` can be used on constructors whose only argument is the type of a record
 
 For inlined record
 
@@ -338,7 +342,7 @@ type v =
   | S of sort [@doc "Doc for S"]
   | R of { name : string [@doc "Doc for R.name"] }
     [@kind "Kind for R"] [@doc "Doc for R"]
-  [@@doc "Doc for v"][@@deriving jsont]
+  [@@doc "Doc for v"] [@@type_key "t"] [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary>
@@ -367,7 +371,7 @@ let v_jsont =
       ~dec:(fun arg -> A arg)
   in
   Jsont.Object.map ~kind:"V" ~doc:"Doc for v" Fun.id
-  |> Jsont.Object.case_mem "type" ~doc:"Cases for V" Jsont.string ~enc:Fun.id
+  |> Jsont.Object.case_mem "t" ~doc:"Cases for V" Jsont.string ~enc:Fun.id
        ~enc_case:(function
          | R t -> Jsont.Object.Case.value jsont__R (R t)
          | S t -> Jsont.Object.Case.value jsont__S t

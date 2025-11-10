@@ -18,7 +18,8 @@ let v : u = { name = A; next = Some { name = X; next = None } }
 let () = assert (v = print_and_recode u_jsont v)
 
 (* Variants *)
-type b = V of int | U of u | R of { arg : bool } | Empty [@@deriving jsont]
+type b = V of int | U of u | R of { arg : bool } | Empty
+[@@type_key "t"] [@@wrap_key "w"] [@@deriving jsont]
 
 let v = [ V 4; U { name = A; next = None }; R { arg = true }; Empty ]
 let () = assert (v = print_and_recode (Jsont.list b_jsont) v)

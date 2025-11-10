@@ -87,8 +87,6 @@ type t = {
 }
 [@@kind "T2"] [@@doc "Doc for t"] [@@deriving_inline jsont]
 
-and u = { x : t } [@@kind "U2"]
-
 let _ = fun (_ : t) -> ()
 
 let jsont =
@@ -121,7 +119,7 @@ type v =
   | S of sort [@doc "Doc for S"]
   | R of { name : string [@doc "Doc for R.name"] } [@kind "Kind for R"]
       [@doc "Doc for R"]
-[@@doc "Doc for v"] [@@type_key "t"] [@@deriving_inline jsont]
+[@@doc "Doc for v"] [@@type_key "t"] [@@wrap_key "w"] [@@deriving_inline jsont]
 
 let _ = fun (_ : v) -> ()
 
@@ -137,13 +135,13 @@ let v_jsont =
   and jsont__S =
     Jsont.Object.Case.map "S"
       (Jsont.Object.map ~kind:"S" ~doc:"Doc for S" Fun.id
-      |> Jsont.Object.mem "v" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id
+      |> Jsont.Object.mem "w" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id
       |> Jsont.Object.finish)
       ~dec:(fun arg -> S arg)
   and jsont__A =
     Jsont.Object.Case.map "Id"
       (Jsont.Object.map ~kind:"One of A kind" Fun.id
-      |> Jsont.Object.mem "v" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id
+      |> Jsont.Object.mem "w" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id
       |> Jsont.Object.finish)
       ~dec:(fun arg -> A arg)
   in
