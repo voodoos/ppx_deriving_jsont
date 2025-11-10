@@ -4,6 +4,15 @@ open Names
 module Set = Set.Make (String)
 module Map = Map.Make (String)
 
+(* This is the implementation from OCaml 5.1 *)
+let find_index p a =
+  let open Array in
+  let n = length a in
+  let rec loop i =
+    if i = n then None else if p (unsafe_get a i) then Some i else loop (succ i)
+  in
+  loop 0
+
 let debug = false
 
 type decl_infos = {
@@ -141,7 +150,7 @@ let decl_infos ~non_rec (decls : type_declaration list) =
           Array.append acc [| (Nonrecursive, Map.singleton name decl) |]
         else
           match
-            Array.find_index
+            find_index
               (function
                 | Nonrecursive, _ -> false
                 | Recursive, m ->

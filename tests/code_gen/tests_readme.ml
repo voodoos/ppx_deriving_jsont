@@ -82,7 +82,7 @@ let _ = tup_jsont
 type t = {
   name : string; [@jsont.doc "Doc for t.name"]
   maybe_parent : t option; [@option]
-  ids : string list; [@default []] [@omit List.is_empty]
+  ids : string list; [@default []] [@omit fun l -> l = []]
   sort : sort; [@key "Sort"]
 }
 [@@kind "T2"] [@@doc "Doc for t"] [@@deriving_inline jsont]
@@ -104,7 +104,8 @@ let jsont =
             ~dec_absent:None ~enc_omit:Option.is_none
        |> Jsont.Object.mem "ids" (Jsont.list Jsont.string)
             ~enc:(fun t -> t.ids)
-            ~dec_absent:[] ~enc_omit:List.is_empty
+            ~dec_absent:[]
+            ~enc_omit:(fun l -> l = [])
        |> Jsont.Object.mem "Sort" sort_jsont ~enc:(fun t -> t.sort)
        |> Jsont.Object.finish)
   in

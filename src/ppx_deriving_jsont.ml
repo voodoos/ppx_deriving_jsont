@@ -200,7 +200,7 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
                 | Rtag (real_name, empty, cts) ->
                     let user_name = Attribute.get Attributes.rtag_key rtag in
                     let args =
-                      if empty || List.is_empty cts then Pcstr_tuple []
+                      if empty || cts = [] then Pcstr_tuple []
                       else Pcstr_tuple cts
                     in
                     let kind = Attribute.get Attributes.rtag_kind rtag in
@@ -753,7 +753,7 @@ let jsont_value_binding ~loc rec_flag (decls : decl Map.t) =
             with_lazy decl.infos.type_params
         in
         (value_binding ~loc ~pat ~expr, value))
-      (Map.to_list decls)
+      (Map.bindings decls)
     |> List.split
   in
   match bindings with
@@ -766,7 +766,7 @@ let jsont_value_binding ~loc rec_flag (decls : decl Map.t) =
         @@ List.map
              (fun (_, { infos = { type_name; _ }; _ }) ->
                pvar ~loc (jsont_name type_name.txt))
-             (Map.to_list decls)
+             (Map.bindings decls)
       in
       value_binding ~loc ~pat:names ~expr
 
