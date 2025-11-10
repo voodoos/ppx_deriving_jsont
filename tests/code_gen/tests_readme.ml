@@ -130,7 +130,7 @@ type v =
   | S of sort [@doc "Doc for S"]
   | R of { name : string [@doc "Doc for R.name"] } [@kind "Kind for R"]
       [@doc "Doc for R"]
-[@@doc "Doc for v"] [@@deriving_inline jsont]
+[@@doc "Doc for v"] [@@type_key "t"] [@@deriving_inline jsont]
 
 let _ = fun (_ : v) -> ()
 
@@ -157,7 +157,7 @@ let v_jsont =
       ~dec:(fun arg -> A arg)
   in
   Jsont.Object.map ~kind:"V" ~doc:"Doc for v" Fun.id
-  |> Jsont.Object.case_mem "type" ~doc:"Cases for V" Jsont.string ~enc:Fun.id
+  |> Jsont.Object.case_mem "t" ~doc:"Cases for V" Jsont.string ~enc:Fun.id
        ~enc_case:(function
          | R t -> Jsont.Object.Case.value jsont__R (R t)
          | S t -> Jsont.Object.Case.value jsont__S t

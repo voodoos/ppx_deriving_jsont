@@ -124,6 +124,9 @@ let u_jsont = t_with_param_jsont (Jsont.list Jsont.int)
 
 ⚠️ Only variants whose constructors have no type parameters are translated as enumerations.
 
+#### Type declaration attributes
+- `@@kind <string>` and `@@doc <string>`
+
 #### Constructor attributes
 - `@key <string>` specifies the JSON name (otherwise the same as the
   constructor itself)
@@ -158,6 +161,9 @@ let sort_jsont =
 ### Tuples
 
 Tuples are encoded as json arrays.
+
+#### Type declaration attributes
+- `@@kind <string>` and `@@doc <string>`
 
 #### Example
 
@@ -223,6 +229,9 @@ let tup_jsont =
 
 Records are mapped using the ["objects-as-records"
 technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_records).
+
+#### Type declaration attributes
+- `@@kind <string>` and `@@doc <string>`
 
 #### Field attributes
 - `@key <string>` specifies the JSON key (otherwise the same as the
@@ -302,8 +311,16 @@ let jsont =
 Variants are encoded using ["object types" as described in the
 cookbook](https://erratique.ch/software/jsont/doc/cookbook.html#cases).
 
+The default `type_key` is `"type"`.
+
 In the future we plan to also support the more traditional encoding variant as
 arrays.
+
+#### Type declaration attributes
+- `@@kind <string>` and `@@doc <string>`
+- `@@type_key <string>` specifies the name of the JSON field used to distinguish
+  cases. This should not be `v` which is used as a wrapper for constructor
+  arguments, or any of the member of an inlined record.
 
 #### Constructors attributes
 - `@key <string>` specifies the JSON name (otherwise the same as the

@@ -13,6 +13,14 @@ module Attributes = struct
   let ld_key = key Attribute.Context.Label_declaration
   let rtag_key = key Attribute.Context.Rtag
 
+  let type_key ctx =
+    Attribute.declare "deriving.jsont.type_key" ctx
+      Ast_pattern.(single_expr_payload (estring __))
+      Fun.id
+
+  let td_type_key = type_key Attribute.Context.type_declaration
+  let ct_type_key = type_key Attribute.Context.core_type
+
   let default context =
     (* This is for compatibility with [ppx_yojson_conv], [absent] is more
        idiomatic to Jsont. *)
@@ -159,6 +167,7 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
         Attribute.get Attributes.ct_doc core_type
         |> Option.fold ~none:doc ~some:Option.some
       in
+      let type_key = Attribute.get Attributes.ct_type_key core_type in
       let constrs =
         List.filter_map
           (fun ({ prf_desc; _ } as rtag) ->
@@ -175,7 +184,8 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
                 Some { real_name; user_name; kind; doc; args })
           rfs
       in
-      of_variant_type ~loc:ptyp_loc ~kind ?doc ~current_decls ~poly:true constrs
+      of_variant_type ~loc:ptyp_loc ~kind ?doc ?type_key ~current_decls
+        ~poly:true constrs
   | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
       let open Ast_builder.Default in
       let kind =
@@ -316,8 +326,8 @@ and of_tuple ~current_decls ~loc ?kind ?doc cts =
     let dec_finish = [%e dec_finish] in
     [%e jsont_array_map] |> Jsont.Array.array]
 
-and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
-    (constrs : generic_constructor list) =
+and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ~current_decls
+    ?(poly = false) (constrs : generic_constructor list) =
   let open Ast_builder.Default in
   let lid name = { name with txt = Lident name.txt } in
   let econstruct name =
@@ -462,8 +472,8 @@ and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
     pexp_let ~loc Nonrecursive bindings
       [%expr
         [%e pexp_apply ~loc [%expr Jsont.Object.map] map_args]
-        |> Jsont.Object.case_mem "type" ~doc:[%e doc] Jsont.string ~enc:Fun.id
-             ~enc_case:[%e enc_case] [%e cases]
+        |> Jsont.Object.case_mem [%e estring ~loc type_key] ~doc:[%e doc]
+             Jsont.string ~enc:Fun.id ~enc_case:[%e enc_case] [%e cases]
         |> Jsont.Object.finish]
   in
   if List.for_all (fun { args; _ } -> args = Pcstr_tuple []) constrs then
@@ -638,7 +648,8 @@ let of_type_declaration ~derived_item_loc ~current_decls
               { real_name = pcd_name; user_name; kind; doc; args = pcd_args })
             constrs
         in
-        of_variant_type ~loc ~kind ?doc ~current_decls constrs
+        let type_key = Attribute.get Attributes.td_type_key infos.ast in
+        of_variant_type ~loc ~kind ?doc ?type_key ~current_decls constrs
     | Ptype_record labels ->
         let expr = of_record_type ~current_decls ~loc ~kind ?doc labels in
         expr
