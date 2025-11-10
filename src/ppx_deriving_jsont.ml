@@ -104,7 +104,8 @@ let jsont_sig_item ~loc ~name type_ =
   in
   psig_value ~loc value_description
 
-let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
+let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
+    =
   let of_core_type = of_core_type ~current_decls in
   let loc = core_type.ptyp_loc in
   (* TODO we should provide finer user control for handling int and floats *)
@@ -149,6 +150,15 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
   | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
       Exp.ident (Loc.make ~loc:ptyp_loc (Lident (jsont_type_var label)))
   | { ptyp_desc = Ptyp_variant (rfs, _, _); ptyp_loc; _ } ->
+      let kind =
+        match Attribute.get Attributes.ct_kind core_type with
+        | Some kind -> kind
+        | None -> Option.value kind ~default:"variant"
+      in
+      let doc =
+        Attribute.get Attributes.ct_doc core_type
+        |> Option.fold ~none:doc ~some:Option.some
+      in
       let constrs =
         List.filter_map
           (fun ({ prf_desc; _ } as rtag) ->
@@ -165,16 +175,18 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
                 Some { real_name; user_name; kind; doc; args })
           rfs
       in
-      (* TODO doc and kind *)
-      of_variant_type ~loc:ptyp_loc ~kind:"variant" ~current_decls ~poly:true
-        constrs
+      of_variant_type ~loc:ptyp_loc ~kind ?doc ~current_decls ~poly:true constrs
   | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
       let open Ast_builder.Default in
       let kind =
-        Attribute.get Attributes.ct_kind core_type |> Option.map (estring ~loc)
+        Attribute.get Attributes.ct_kind core_type
+        |> Option.fold ~none:kind ~some:Option.some
+        |> Option.map (estring ~loc)
       in
       let doc =
-        Attribute.get Attributes.ct_doc core_type |> Option.map (estring ~loc)
+        Attribute.get Attributes.ct_doc core_type
+        |> Option.fold ~none:doc ~some:Option.some
+        |> Option.map (estring ~loc)
       in
       of_tuple ~current_decls ~loc:ptyp_loc ?kind ?doc cts
   | ct ->
@@ -633,7 +645,7 @@ let of_type_declaration ~derived_item_loc ~current_decls
     | Ptype_abstract -> (
         match ptype_manifest with
         | Some core_type ->
-            let value = of_core_type ~current_decls core_type in
+            let value = of_core_type ~kind ?doc ~current_decls core_type in
             value
         | _ -> failwith "ppx_deriving_jsont: not implemented: abstract types")
     | _ -> failwith "ppx_deriving_jsont: not implemented"

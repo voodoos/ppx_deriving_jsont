@@ -24,13 +24,13 @@ be happy to improve.
 
 - [x] Variants without type parameters (enum)
 - [x] Variants with one type parameter
-- [ ] Tuples
-- [ ] Variants with more than one type parameter (using tuples)
+- [x] Tuples
+- [x] Variants with more than one type parameter (using tuples)
 - [x] Inline records
 - [x] Records-as-objects
 - [x] Types with parameters
 - [x] [Recursive types](https://erratique.ch/software/jsont/doc/cookbook.html#recursion)
-- [ ] Mutually recursive types
+- [x] Mutually recursive types
 - [ ] Support for all meaningful base types
 - [ ] Options (in the form of attributes)
     - [ ] to pass custom Jsont values
@@ -87,22 +87,25 @@ All type declarations can be annotated with the `[@@kind "Some kind"]` and
 `[@@doc "Some doc"]` attributes to improve error messages. This has no effect
 when used on base types.
 
+The `kind` value usually defaults to the name of the type, the `doc` value to
+`None`.
+
 ### Basic types (with parameters)
 
 #### Example
 
 ```ocaml
-type 'a t = 'a [@@deriving jsont]
+type 'a t_with_param = 'a [@@deriving jsont]
 
-type u = int list t [@@deriving jsont]
+type u = int list t_with_param [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary></h3>
 
 ```ocaml
-let jsont jsont_type_var__a = jsont_type_var__a
+let t_with_param_jsont jsont_type_var__a = jsont_type_var__a
 
-let u_jsont = jsont (Jsont.list Jsont.int)
+let u_jsont = t_with_param_jsont (Jsont.list Jsont.int)
 ```
 
 </details>
@@ -121,20 +124,23 @@ let u_jsont = jsont (Jsont.list Jsont.int)
 
 ⚠️ Only variants whose constructors have no type parameters are translated as enumerations.
 
-#### Attributes
+#### Constructor attributes
 - `@key <string>` specifies the JSON name (otherwise the same as the
   constructor itself)
 
 #### Example
 
 ```ocaml
-type sort = A | X [@key "B"] | C [@@deriving jsont]
+type sort = A | X [@key "B"] | C
+  [@@doc "A doc of sorts"] [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary>
 
 ```ocaml
-let sort_jsont = Jsont.enum ~kind:"Sort" [ ("A", A); ("B", X); ("C", C) ]
+let sort_jsont =
+  Jsont.enum ~doc:"A doc of sorts" ~kind:"Sort"
+    [("A", A); ("B", X); ("C", C)]
 ```
 
 </details>
@@ -149,23 +155,56 @@ let sort_jsont = Jsont.enum ~kind:"Sort" [ ("A", A); ("B", X); ("C", C) ]
 ["A","B","C"]
 ```
 
-### Generic variants
+### Tuples
 
-#### Attributes
-- `@key <string>` specifies the JSON name (otherwise the same as the
-  constructor itself)
+Tuples are encoded as json arrays.
 
 #### Example
 
 ```ocaml
-type v = A of int [@key "Id"] | S of sort [@@deriving jsont]
+type tup = int * string t_with_param [@@doc "Tup doc"] [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary>
 
 ```ocaml
-
-
+let tup_jsont =
+  let get_or_raise = function
+    | Ok r -> r
+    | Error err -> raise (Jsont.Error err)
+  in
+  let enc f acc (e0, e1) =
+    let e0 = Jsont.Json.encode' Jsont.int e0 |> get_or_raise in
+    let e1 =
+      Jsont.Json.encode' (t_with_param_jsont Jsont.string) e1 |> get_or_raise
+    in
+    [ (0, e0); (1, e1) ] |> List.fold_left (fun acc (i, e) -> f acc i e) acc
+  in
+  let dec_empty () = (None, None) in
+  let dec_add i elt (e0, e1) =
+    match i with
+    | 0 ->
+        let e = Jsont.Json.decode' Jsont.int elt |> get_or_raise in
+        (Some e, e1)
+    | 1 ->
+        let e =
+          Jsont.Json.decode' (t_with_param_jsont Jsont.string) elt
+          |> get_or_raise
+        in
+        (e0, Some e)
+    | _ -> Jsont.Error.msgf Jsont.Meta.none "Too many elements for tuple."
+  in
+  let dec_finish meta _ (e0, e1) =
+    let get_or_raise i o =
+      match o with
+      | Some v -> v
+      | None -> Jsont.Error.msgf meta "Missing tuple member #%i" i
+    in
+    (get_or_raise 0 e0, get_or_raise 1 e1)
+  in
+  Jsont.Array.map ~kind:"Tup" ~doc:"Tup doc" ~enc:{ enc } ~dec_empty ~dec_add
+    ~dec_finish Jsont.json
+  |> Jsont.Array.array
 ```
 
 </details>
@@ -173,11 +212,11 @@ type v = A of int [@key "Id"] | S of sort [@@deriving jsont]
 #### Json output:
 
 ```ocaml
-# Jsont_bytesrw.encode_string (Jsont.list v_jsont) [ S X; A 42 ];;
+# Jsont_bytesrw.encode_string tup_jsont (42, "quarante-deux");;
 ```
 
 ```json
-[{"type":"S","v":"B"},{"type":"Id","v":42}]
+[42,"quarante-deux"]
 ```
 
 ### Records
@@ -185,7 +224,7 @@ type v = A of int [@key "Id"] | S of sort [@@deriving jsont]
 Records are mapped using the ["objects-as-records"
 technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_records).
 
-#### Attributes
+#### Field attributes
 - `@key <string>` specifies the JSON key (otherwise the same as the
   field)
 - `@doc <string>` to document fields
@@ -198,39 +237,37 @@ technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_reco
 
 ```ocaml
 type t = {
-  name : string;
+  name : string; [@doc "Object name"]
   maybe_parent : t option; [@option]
   ids : string list; [@default []] [@omit List.is_empty]
   sort : sort; [@key "Sort"]
 }
-[@@deriving jsont]
+[@@doc "A t object"] [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary>
 
 ```ocaml
 let jsont =
-  let rec jsont_rec__t =
+  let rec jsont =
     lazy
-      (Jsont.Object.finish
-         (Jsont.Object.mem "Sort" sort_jsont
-            ~enc:(fun t -> t.sort)
-            ?dec_absent:None ?enc_omit:None
-            (Jsont.Object.mem "ids" (Jsont.list Jsont.string)
-               ~enc:(fun t -> t.ids)
-               ?dec_absent:(Some []) ?enc_omit:(Some List.is_empty)
-               (Jsont.Object.mem "maybe_parent"
-                  (Jsont.option (Jsont.rec' jsont_rec__t))
-                  ~enc:(fun t -> t.maybe_parent)
-                  ?dec_absent:(Some None) ?enc_omit:(Some Option.is_none)
-                  (Jsont.Object.mem "name" Jsont.string
-                     ~enc:(fun t -> t.name)
-                     ?dec_absent:None ?enc_omit:None
-                     (Jsont.Object.map ~kind:"T"
-                        (fun name maybe_parent ids sort ->
-                          { name; maybe_parent; ids; sort })))))))
+      (let make name maybe_parent ids sort =
+         { name; maybe_parent; ids; sort }
+       in
+       Jsont.Object.map ~doc:"A t object" ~kind:"T2" make
+       |> Jsont.Object.mem "name" ~doc:"Object name" Jsont.string ~enc:(fun t ->
+           t.name)
+       |> Jsont.Object.mem "maybe_parent"
+            (Jsont.option (Jsont.rec' jsont))
+            ~enc:(fun t -> t.maybe_parent)
+            ~dec_absent:None ~enc_omit:Option.is_none
+       |> Jsont.Object.mem "ids" (Jsont.list Jsont.string)
+            ~enc:(fun t -> t.ids)
+            ~dec_absent:[] ~enc_omit:List.is_empty
+       |> Jsont.Object.mem "Sort" sort_jsont ~enc:(fun t -> t.sort)
+       |> Jsont.Object.finish)
   in
-  Lazy.force jsont_rec__t
+  Lazy.force jsont
 ```
 
 </details>
@@ -259,3 +296,82 @@ let jsont =
   "Sort":"A"
 }
 ```
+
+### Variants
+
+Variants are encoded using ["object types" as described in the
+cookbook](https://erratique.ch/software/jsont/doc/cookbook.html#cases).
+
+In the future we plan to also support the more traditional encoding variant as
+arrays.
+
+#### Constructors attributes
+- `@key <string>` specifies the JSON name (otherwise the same as the
+  constructor itself)
+- `@doc <string>` to document constructors
+- `@kind <string>` to specify the kind of inlined-records
+
+For inlined record
+
+#### Example
+
+```ocaml
+type v =
+  | A of int [@key "Id"] [@kind "One of A kind"]
+  | S of sort [@doc "Doc for S"]
+  | R of { name : string [@doc "Doc for R.name"] }
+    [@kind "Kind for R"] [@doc "Doc for R"]
+  [@@doc "Doc for v"][@@deriving jsont]
+```
+
+<details><summary>See generated code</summary>
+
+```ocaml
+let v_jsont =
+  let jsont__R =
+    Jsont.Object.Case.map "R"
+      (let make name = R { name } in
+       Jsont.Object.map ~doc:"Doc for R" ~kind:"Kind for R" make
+       |> Jsont.Object.mem "name" ~doc:"Doc for R.name" Jsont.string
+            ~enc:((fun (R t) -> t.name) [@ocaml.warning "-8"])
+       |> Jsont.Object.finish)
+      ~dec:Fun.id
+  and jsont__S =
+    Jsont.Object.Case.map "S"
+      (Jsont.Object.map ~kind:"S" ~doc:"Doc for S" Fun.id
+      |> Jsont.Object.mem "v" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id
+      |> Jsont.Object.finish)
+      ~dec:(fun arg -> S arg)
+  and jsont__A =
+    Jsont.Object.Case.map "Id"
+      (Jsont.Object.map ~kind:"One of A kind" Fun.id
+      |> Jsont.Object.mem "v" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id
+      |> Jsont.Object.finish)
+      ~dec:(fun arg -> A arg)
+  in
+  Jsont.Object.map ~kind:"V" ~doc:"Doc for v" Fun.id
+  |> Jsont.Object.case_mem "type" ~doc:"Cases for V" Jsont.string ~enc:Fun.id
+       ~enc_case:(function
+         | R t -> Jsont.Object.Case.value jsont__R (R t)
+         | S t -> Jsont.Object.Case.value jsont__S t
+         | A t -> Jsont.Object.Case.value jsont__A t)
+       [
+         Jsont.Object.Case.make jsont__R;
+         Jsont.Object.Case.make jsont__S;
+         Jsont.Object.Case.make jsont__A;
+       ]
+  |> Jsont.Object.finish
+```
+
+</details>
+
+#### Json output:
+
+```ocaml
+# Jsont_bytesrw.encode_string (Jsont.list v_jsont) [ S X; A 42 ];;
+```
+
+```json
+[{"type":"S","v":"B"},{"type":"Id","v":42}]
+```
+

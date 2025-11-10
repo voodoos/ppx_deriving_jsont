@@ -1,1 +1,1 @@
-let jsont_type_var label = "_jsont_type_var__" ^ label
+let jsont_type_var label = "jsont_type_var__" ^ label
