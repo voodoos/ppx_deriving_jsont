@@ -9,6 +9,11 @@ to be a completely automatic replacement for manual bindings but rather a tool
 to help generate tedious parts of the bindings that can be mix-and-matched with
 carefully user-written descriptions when that is necessary.
 
+Please take some time to read about all of Jsont's intricacies:
+
+- In the official [documentation](https://erratique.ch/software/jsont/doc/) and [cookbook](https://erratique.ch/software/jsont/doc/cookbook.html)
+- In Daniel's [introductory post](https://discuss.ocaml.org/t/ann-jsont-0-1-0-declarative-json-data-manipulation-for-ocaml/15702) here on discuss.
+
 ## 🚧🚧 Work in progress
 
 This an early take on writing a deriver for
@@ -41,7 +46,9 @@ be happy to improve.
     - [ ] for other kinds of objects mappings (as sets for example)
     - [ ] for other kinds of variants mappings (as arrays for example)
 - [ ] Also generate objects' Paths (lenses ?)
-- [ ] Ensure locations make sense
+- [ ] Ppx sanitisation
+  - [ ] Ensure locations make sense
+  - [ ] Correctly raise errors
 - [ ] Comprehensive test-suite
 
 ## Installation
