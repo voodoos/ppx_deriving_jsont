@@ -15,38 +15,41 @@ let _ = sort_jsont
 
 type tup = int * string [@@deriving_inline jsont]
 
+let _ = fun (_ : tup) -> ()
+
 let tup_jsont =
   let get_or_raise = function
     | Ok r -> r
     | Error err -> raise (Jsont.Error err)
   in
-  let enc f acc (i, s) =
-    let i = Jsont.Json.encode' Jsont.int i |> get_or_raise in
-    let s = Jsont.Json.encode' Jsont.string s |> get_or_raise in
-    f (f acc 0 i) 1 s
+  let enc f acc (e0, e1) =
+    let e0 = Jsont.Json.encode' Jsont.int e0 |> get_or_raise in
+    let e1 = Jsont.Json.encode' Jsont.string e1 |> get_or_raise in
+    [ (0, e0); (1, e1) ] |> List.fold_left (fun acc (i, e) -> f acc i e) acc
   in
   let dec_empty () = (None, None) in
-  let dec_add =
-   fun i elt (e1, e2) ->
+  let dec_add i elt (e0, e1) =
     match i with
     | 0 ->
-        let i = Jsont.Json.decode' Jsont.int elt |> get_or_raise in
-        (Some i, e2)
+        let e = Jsont.Json.decode' Jsont.int elt |> get_or_raise in
+        (Some e, e1)
     | 1 ->
-        let s = Jsont.Json.decode' Jsont.string elt |> get_or_raise in
-        (e1, Some s)
-    | _ -> Jsont.(Error.msgf Meta.none "Too many elements for tuple.")
+        let e = Jsont.Json.decode' Jsont.string elt |> get_or_raise in
+        (e0, Some e)
+    | _ -> Jsont.Error.msgf Jsont.Meta.none "Too many elements for tuple."
   in
-  let dec_finish meta _ (a, b) =
+  let dec_finish meta _ (e0, e1) =
     let get_or_raise i o =
       match o with
       | Some v -> v
       | None -> Jsont.Error.msgf meta "Missing tuple member #%i" i
     in
-    (get_or_raise 0 a, get_or_raise 1 b)
+    (get_or_raise 0 e0, get_or_raise 1 e1)
   in
   Jsont.Array.map ~enc:{ enc } ~dec_empty ~dec_add ~dec_finish Jsont.json
   |> Jsont.Array.array
+
+let _ = tup_jsont
 
 [@@@ppxlib.inline.end]
 

@@ -65,6 +65,11 @@ module A = struct
   let make = List.filter_map Fun.id
 end
 
+let epipe ~loc =
+  let open Ast_builder.Default in
+  let lid = evar ~loc "|>" in
+  fun lhs rhs -> pexp_apply ~loc lid [ (Nolabel, lhs); (Nolabel, rhs) ]
+
 let deriver = "jsont"
 
 let jsont_name type_name =
@@ -164,8 +169,13 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       of_variant_type ~loc:ptyp_loc ~kind:"variant" ~current_decls ~poly:true
         constrs
   | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
-      let kind = Attribute.get Attributes.ct_kind core_type in
-      let doc = Attribute.get Attributes.ct_doc core_type in
+      let open Ast_builder.Default in
+      let kind =
+        Attribute.get Attributes.ct_kind core_type |> Option.map (estring ~loc)
+      in
+      let doc =
+        Attribute.get Attributes.ct_doc core_type |> Option.map (estring ~loc)
+      in
       of_tuple ~current_decls ~loc:ptyp_loc ?kind ?doc cts
   | ct ->
       let msg =
@@ -175,28 +185,124 @@ let rec of_core_type ~current_decls (core_type : Parsetree.core_type) =
       (* TODO better ppx error handling *)
       failwith msg
 
+(* Tuples are encoded as json arrays *)
 and of_tuple ~current_decls ~loc ?kind ?doc cts =
   let open Ast_builder.Default in
   let elements =
     List.mapi
       (fun i ct ->
-        (i, "t" ^ string_of_int i, ct.ptyp_loc, of_core_type ~current_decls ct))
+        (i, "e" ^ string_of_int i, ct.ptyp_loc, of_core_type ~current_decls ct))
       cts
   in
-  let enc =
-    let _ = () in
-    List.map
-      (fun (_, id, loc, arg_jsont) ->
-        let pat = ppat_var ~loc { txt = id; loc } in
-        let expr =
-          (* let lid = pexp_ident ~loc { txt = lident id; loc } in *)
-          [%expr
-            Jsont.Json.encode' [%e arg_jsont] [%lid lident id] |> get_or_raise]
-        in
-        pexp_let ~loc Nonrecursive [ value_binding ~loc ~pat ~expr ])
-      elements
+  let tuple_pat =
+    List.map (fun (_, txt, loc, _) -> pvar ~loc txt) elements |> ppat_tuple ~loc
   in
-  assert false
+  let enc =
+    let application =
+      let list =
+        List.mapi
+          (fun i (_, txt, loc, _) ->
+            [%expr [%e eint ~loc i], [%e evar ~loc txt]])
+          elements
+        |> elist ~loc
+      in
+      epipe ~loc list [%expr List.fold_left (fun acc (i, e) -> f acc i e) acc]
+    in
+    let body =
+      List.fold_left
+        (fun acc (_, txt, loc, arg_jsont) ->
+          let pat = pvar ~loc txt in
+          let expr =
+            [%expr
+              Jsont.Json.encode' [%e arg_jsont] [%e evar ~loc txt]
+              |> get_or_raise]
+          in
+          pexp_let ~loc Nonrecursive [ value_binding ~loc ~pat ~expr ] acc)
+        application (List.rev elements)
+    in
+    [%expr fun f acc [%p tuple_pat] -> [%e body]]
+  in
+  let dec_empty =
+    let nones = pexp_tuple ~loc @@ List.map (fun _ -> [%expr None]) elements in
+    [%expr fun () -> [%e nones]]
+  in
+  let dec_add =
+    let cases =
+      List.mapi
+        (fun i (_, _, loc, arg_jsont) ->
+          let lhs = pint ~loc i in
+          let rhs =
+            let tuple =
+              pexp_tuple ~loc
+              @@ List.mapi
+                   (fun j (_, txt, loc, _) ->
+                     if i = j then [%expr Some e] else evar ~loc txt)
+                   elements
+            in
+            [%expr
+              let e = Jsont.Json.decode' [%e arg_jsont] elt |> get_or_raise in
+              [%e tuple]]
+          in
+          case ~lhs ~guard:None ~rhs)
+        elements
+    in
+    let cases =
+      List.append cases
+        [
+          (let rhs =
+             [%expr
+               Jsont.Error.msgf Jsont.Meta.none "Too many elements for tuple."]
+           in
+           case ~lhs:(ppat_any ~loc) ~guard:None ~rhs);
+        ]
+    in
+    [%expr fun i elt [%p tuple_pat] -> [%e pexp_match ~loc [%expr i] cases]]
+  in
+  let dec_finish =
+    let tuple =
+      pexp_tuple ~loc
+      @@ List.mapi
+           (fun i (_, txt, loc, _) ->
+             [%expr get_or_raise [%e eint ~loc i] [%e evar ~loc txt]])
+           elements
+    in
+    [%expr
+      fun meta _ [%p tuple_pat] ->
+        let get_or_raise i o =
+          match o with
+          | Some v -> v
+          | None -> Jsont.Error.msgf meta "Missing tuple member #%i" i
+        in
+        [%e tuple]]
+  in
+  let jsont_array_map =
+    let args =
+      let open A in
+      let kind = Option.bind kind (labelled "kind") in
+      let doc = Option.bind doc (labelled "doc") in
+      make
+        [
+          kind;
+          doc;
+          labelled "enc" [%expr { enc }];
+          labelled "dec_empty" (evar ~loc "dec_empty");
+          labelled "dec_add" (evar ~loc "dec_add");
+          labelled "dec_finish" (evar ~loc "dec_finish");
+          no_label [%expr Jsont.json];
+        ]
+    in
+    pexp_apply ~loc [%expr Jsont.Array.map] args
+  in
+  [%expr
+    let get_or_raise = function
+      | Ok r -> r
+      | Error err -> raise (Jsont.Error err)
+    in
+    let enc = [%e enc] in
+    let dec_empty = [%e dec_empty] in
+    let dec_add = [%e dec_add] in
+    let dec_finish = [%e dec_finish] in
+    [%e jsont_array_map] |> Jsont.Array.array]
 
 and of_variant_type ~loc ~kind ?doc ~current_decls ?(poly = false)
     (constrs : generic_constructor list) =
@@ -415,10 +521,6 @@ and of_record_type ~current_decls ~loc ~kind ?doc ?inlined_constr labels =
     in
     pexp_apply ~loc [%expr Jsont.Object.map] args
   in
-  let pipe =
-    let lid = pexp_ident ~loc { txt = lident "|>"; loc } in
-    fun lhs rhs -> pexp_apply ~loc lid [ (Nolabel, lhs); (Nolabel, rhs) ]
-  in
   let mems =
     List.fold_left
       (fun acc
@@ -494,10 +596,10 @@ and of_record_type ~current_decls ~loc ~kind ?doc ?inlined_constr labels =
           ]
           |> make
         in
-        pipe acc (pexp_apply ~loc [%expr Jsont.Object.mem] args))
+        epipe ~loc acc (pexp_apply ~loc [%expr Jsont.Object.mem] args))
       map labels
   in
-  with_make_fun (pipe mems [%expr Jsont.Object.finish])
+  with_make_fun (epipe ~loc mems [%expr Jsont.Object.finish])
 
 type decl = { infos : decl_infos; jsont_expr : expression }
 
