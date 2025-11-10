@@ -1,12 +1,13 @@
 # [@@deriving jsont]
 
-`ppx_deriving_jsont` is a [PPX deriver](https://ocaml-ppx.github.io/ppxlib/ppxlib/driver.html#def_derivers) that generates
-[Jsont](https://erratique.ch/software/jsont) descriptions of OCaml types. Jsont
-allows for a lot more flexibility and precision when writing mappings between
-OCaml values and JSON. This PPX does not purposes to be a completely automatic
-replacement for manual bindings but rather a tool to help generate tedious parts
-of the bindings that can be mix-and-matched with carefully user-written
-descriptions when that is necessary.
+`ppx_deriving_jsont` is a [PPX
+deriver](https://ocaml-ppx.github.io/ppxlib/ppxlib/driver.html#def_derivers)
+that generates [Jsont](https://erratique.ch/software/jsont) descriptions of
+OCaml types. Note that Jsont allows for a lot more flexibility and precision
+when writing mappings between OCaml values and JSON. This PPX does not purposes
+to be a completely automatic replacement for manual bindings but rather a tool
+to help generate tedious parts of the bindings that can be mix-and-matched with
+carefully user-written descriptions when that is necessary.
 
 ## 🚧🚧 Work in progress
 
@@ -90,7 +91,7 @@ when used on base types.
 The `kind` value usually defaults to the name of the type, the `doc` value to
 `None`.
 
-### Core types attribute
+### Core types attributes
 
 Users can overide any core type deriving byt providing their own `Jsont.t`
 description using the `[@jsont <value>]` attribute.
@@ -268,7 +269,7 @@ let jsont =
       (let make name maybe_parent ids sort =
          { name; maybe_parent; ids; sort }
        in
-       Jsont.Object.map ~doc:"A t object" ~kind:"T2" make
+       Jsont.Object.map ~doc:"A t object" ~kind:"T" make
        |> Jsont.Object.mem "name" ~doc:"Object name" Jsont.string ~enc:(fun t ->
            t.name)
        |> Jsont.Object.mem "maybe_parent"
