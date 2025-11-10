@@ -90,7 +90,6 @@ type t = {
 and u = { x : t } [@@kind "U2"]
 
 let _ = fun (_ : t) -> ()
-let _ = fun (_ : u) -> ()
 
 let jsont =
   let rec jsont =
@@ -114,14 +113,6 @@ let jsont =
   Lazy.force jsont
 
 let _ = jsont
-
-let u_jsont =
-  let make x = { x } in
-  Jsont.Object.map ~kind:"U2" make
-  |> Jsont.Object.mem "x" jsont ~enc:(fun t -> t.x)
-  |> Jsont.Object.finish
-
-let _ = u_jsont
 
 [@@@ppxlib.inline.end]
 
