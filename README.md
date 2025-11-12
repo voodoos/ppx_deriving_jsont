@@ -53,8 +53,12 @@ be happy to improve.
 
 ## Installation
 
-`ppx_deriving_jsont` is still experimental and has not been released to Opam
-yet. Given how incomplete it is right now you might want to vendor it and
+
+```shell
+opam install ppx_deriving_jsont
+```
+
+`ppx_deriving_jsont` is still experimental. You might want to vendor it and
 eventually contribute your improvements upstream. Alternatively, the development
 version can be installed in a switch using Opam's `pin` command:
 
