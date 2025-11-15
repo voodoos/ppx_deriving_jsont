@@ -178,9 +178,9 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
             if is_rec then [%expr Jsont.rec' [%e with_args]] else with_args
           in
           expr
-      | { ptyp_desc = Ptyp_var label; ptyp_loc; _ } ->
-          Exp.ident (Loc.make ~loc:ptyp_loc (Lident (jsont_type_var label)))
-      | { ptyp_desc = Ptyp_variant (rfs, _, _); ptyp_loc; _ } ->
+      | { ptyp_desc = Ptyp_var label; _ } ->
+          Exp.ident (Loc.make ~loc (Lident (jsont_type_var label)))
+      | { ptyp_desc = Ptyp_variant (rfs, _, _); _ } ->
           let kind =
             match Attribute.get Attributes.ct_kind core_type with
             | Some kind -> kind
@@ -212,9 +212,9 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
                     Some { real_name; user_name; kind; doc; nowrap; args })
               rfs
           in
-          of_variant_type ~loc:ptyp_loc ~kind ?doc ?type_key ?wrap_key
-            ~current_decls ~poly:true constrs
-      | { ptyp_desc = Ptyp_tuple cts; ptyp_loc; _ } ->
+          of_variant_type ~loc ~kind ?doc ?type_key ?wrap_key ~current_decls
+            ~poly:true constrs
+      | { ptyp_desc = Ptyp_tuple cts; _ } ->
           let open Ast_builder.Default in
           let kind =
             Attribute.get Attributes.ct_kind core_type
@@ -226,7 +226,7 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
             |> Option.fold ~none:doc ~some:Option.some
             |> Option.map (estring ~loc)
           in
-          of_tuple ~current_decls ~loc:ptyp_loc ?kind ?doc cts
+          of_tuple ~current_decls ~loc ?kind ?doc cts
       | ct ->
           (* TODO better ppx error handling *)
           Location.raise_errorf ~loc
@@ -373,6 +373,7 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
     let all_constrs =
       List.map
         (fun { real_name; user_name; _ } ->
+          let loc = real_name.loc in
           let name = Option.value ~default:real_name.txt user_name in
           let construct = econstruct ~loc real_name None in
           [%expr [%e estring ~loc name], [%e construct]])
@@ -384,6 +385,7 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
     let constrs =
       List.fold_left
         (fun acc { real_name; user_name; kind; doc; nowrap; args } ->
+          let loc = real_name.loc in
           let name = Option.value ~default:real_name.txt user_name in
           let arg =
             match args with
@@ -415,8 +417,7 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
             | `No_wrap arg -> arg
             | `Should_wrap arg ->
                 let kind =
-                  estring ~loc:real_name.loc
-                  @@ Option.value kind ~default:real_name.txt
+                  estring ~loc @@ Option.value kind ~default:real_name.txt
                 in
                 let args =
                   let open A in
@@ -436,7 +437,6 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
           in
           let mk_fun =
             (* fun arg -> Circle arg *)
-            let loc = real_name.loc in
             let pat, var =
               if arg = `No_arg then (punit ~loc, None)
               else
@@ -451,7 +451,7 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
           in
           let result =
             (* Jsont.Object.Case.map "Circle" Circle.jsont ~dec:circle *)
-            let name = estring ~loc:real_name.loc name in
+            let name = estring ~loc name in
             [%expr
               Jsont.Object.Case.map [%e name] [%e wrapped_arg] ~dec:[%e mk_fun]]
           in
@@ -461,7 +461,8 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
     in
     let bindings, cases =
       List.map
-        (fun (binding_name, _, _, expr) ->
+        (fun (binding_name, real_name, _, expr) ->
+          let loc = real_name.loc in
           ( value_binding ~loc ~pat:(pvar ~loc binding_name) ~expr,
             [%expr Jsont.Object.Case.make [%e evar ~loc binding_name]] ))
         constrs
@@ -657,10 +658,10 @@ and of_record_type ~current_decls ~loc ~kind ?doc ?inlined_constr labels =
 
 type decl = { infos : decl_infos; jsont_expr : expression }
 
-let of_type_declaration ~derived_item_loc ~current_decls
-    ({ ast = { ptype_name; ptype_kind; ptype_manifest; _ }; _ } as infos) =
-  (* TODO it would be better to have the loc of the annotation here *)
-  let loc = derived_item_loc in
+let of_type_declaration ~current_decls
+    ({ ast = { ptype_name; ptype_kind; ptype_manifest; ptype_loc; _ }; _ } as
+     infos) =
+  let loc = ptype_loc in
   let kind =
     Attribute.get Attributes.td_kind infos.ast
     |> Option.value ~default:(String.capitalize_ascii ptype_name.txt)
@@ -795,11 +796,7 @@ let of_type_declarations ~derived_item_loc rec_flag tds =
   let decls =
     List.map
       (fun (rec_flag, decls) ->
-        let decls =
-          Map.map
-            (of_type_declaration ~derived_item_loc ~current_decls:decls)
-            decls
-        in
+        let decls = Map.map (of_type_declaration ~current_decls:decls) decls in
         (rec_flag, decls))
       current_decls
   in
