@@ -228,12 +228,10 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
           in
           of_tuple ~current_decls ~loc:ptyp_loc ?kind ?doc cts
       | ct ->
-          let msg =
-            Printf.sprintf "ppx_deriving_jsont: not implemented: core_type %s"
-              (Ppxlib.string_of_core_type ct)
-          in
           (* TODO better ppx error handling *)
-          failwith msg)
+          Location.raise_errorf ~loc
+            "ppx_deriving_jsont: not implemented: core_type %s"
+            (Ppxlib.string_of_core_type ct))
 
 (* Tuples are encoded as json arrays *)
 and of_tuple ~current_decls ~loc ?kind ?doc cts =
@@ -703,8 +701,12 @@ let of_type_declaration ~derived_item_loc ~current_decls
         | Some core_type ->
             let value = of_core_type ~kind ?doc ~current_decls core_type in
             value
-        | _ -> failwith "ppx_deriving_jsont: not implemented: abstract types")
-    | _ -> failwith "ppx_deriving_jsont: not implemented"
+        | _ ->
+            Location.raise_errorf ~loc
+              "ppx_deriving_jsont: not implemented: abstract types with no \
+               manifest")
+    | Ptype_open ->
+        Location.raise_errorf ~loc "ppx_deriving_jsont: ptype_kind Ptype_open"
   in
   { infos; jsont_expr }
 
