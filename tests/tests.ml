@@ -84,3 +84,9 @@ type now = NW of u [@nowrap] [@@deriving jsont]
 
 let v : now = NW { name = X; next = None }
 let () = assert (v = print_and_recode now_jsont v)
+
+(* Issue with vars in tuples *)
+type tuple_issue = int * int [@@deriving jsont]
+
+let v : tuple_issue = (36, 42)
+let () = assert (v = print_and_recode tuple_issue_jsont v)

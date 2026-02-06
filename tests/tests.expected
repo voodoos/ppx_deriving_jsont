@@ -9,3 +9,4 @@
 [42,"quarante-deux",{"v":{"type":"Empty"}}]
 {"type":"T","v":[36,{"type":"'B"}]}
 {"type":"NW","name":"B","next":null}
+[36,42]
