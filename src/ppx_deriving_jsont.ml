@@ -254,7 +254,8 @@ and of_tuple ~current_decls ~loc ?kind ?doc cts =
           elements
         |> elist ~loc
       in
-      epipe ~loc list [%expr List.fold_left (fun acc (i, e) -> f acc i e) acc]
+      epipe ~loc list
+        [%expr Stdlib.List.fold_left (fun acc (i, e) -> f acc i e) acc]
     in
     let body =
       List.fold_left
@@ -425,7 +426,10 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
                     Option.bind doc (fun doc ->
                         labelled "doc" (estring ~loc doc))
                   in
-                  make [ labelled "kind" kind; doc; no_label [%expr Fun.id] ]
+                  make
+                    [
+                      labelled "kind" kind; doc; no_label [%expr Stdlib.Fun.id];
+                    ]
                 in
                 let doc = estring ~loc ("Wrapper for " ^ real_name.txt) in
                 let wrap_key = estring ~loc wrap_key in
