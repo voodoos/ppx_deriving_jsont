@@ -1,4 +1,4 @@
-0.2.0
+0.2.1
 =====
 
 - Replace failwiths by Ppxlib's raise_errorf. This prevents the PPX from
