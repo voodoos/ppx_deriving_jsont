@@ -1,5 +1,5 @@
-unreleased
-==========
+0.2.0
+=====
 
 - Replace failwiths by Ppxlib's raise_errorf. This prevents the PPX from
   completely breaking Merlin's pipeline.
