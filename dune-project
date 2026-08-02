@@ -3,6 +3,7 @@
 (name ppx_deriving_jsont)
 
 (generate_opam_files)
+(cram enable)
 
 (source
  (github voodoos/ppx_deriving_jsont))
