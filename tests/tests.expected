@@ -10,3 +10,4 @@
 {"type":"T","v":[36,{"type":"'B"}]}
 {"type":"NW","name":"B","next":null}
 [36,42]
+{"type":"Foo","v":[36,42]}
