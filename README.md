@@ -168,7 +168,7 @@ let sort_jsont =
 #### Json output:
 
 ```ocaml
-# Jsont_bytesrw.encode_string (Jsont.list u_jsont) [ A; X; C ];;
+# Jsont_bytesrw.encode_string (Jsont.list sort_jsont) [ A; X; C ];;
 ```
 
 ```json
@@ -201,7 +201,8 @@ let tup_jsont =
     let e1 =
       Jsont.Json.encode' (t_with_param_jsont Jsont.string) e1 |> get_or_raise
     in
-    [ (0, e0); (1, e1) ] |> List.fold_left (fun acc (i, e) -> f acc i e) acc
+    [ (0, e0); (1, e1) ]
+    |> Stdlib.List.fold_left (fun acc (i, e) -> f acc i e) acc
   in
   let dec_empty () = (None, None) in
   let dec_add i elt (e0, e1) =
@@ -263,12 +264,12 @@ technique](https://erratique.ch/software/jsont/doc/cookbook.html#objects_as_reco
 
 ```ocaml
 type t = {
-  name : string; [@doc "Object name"]
+  name : string; [@jsont.doc "Doc for t.name"]
   maybe_parent : t option; [@option]
-  ids : string list; [@default []] [@omit List.is_empty]
+  ids : string list; [@default []] [@omit fun l -> l = []]
   sort : sort; [@key "Sort"]
 }
-[@@doc "A t object"] [@@deriving jsont]
+[@@kind "T2"] [@@doc "Doc for t"] [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary>
@@ -280,16 +281,17 @@ let jsont =
       (let make name maybe_parent ids sort =
          { name; maybe_parent; ids; sort }
        in
-       Jsont.Object.map ~doc:"A t object" ~kind:"T" make
-       |> Jsont.Object.mem "name" ~doc:"Object name" Jsont.string ~enc:(fun t ->
-           t.name)
+       Jsont.Object.map ~doc:"Doc for t" ~kind:"T2" make
+       |> Jsont.Object.mem "name" ~doc:"Doc for t.name" Jsont.string
+            ~enc:(fun t -> t.name)
        |> Jsont.Object.mem "maybe_parent"
             (Jsont.option (Jsont.rec' jsont))
             ~enc:(fun t -> t.maybe_parent)
             ~dec_absent:None ~enc_omit:Option.is_none
        |> Jsont.Object.mem "ids" (Jsont.list Jsont.string)
             ~enc:(fun t -> t.ids)
-            ~dec_absent:[] ~enc_omit:List.is_empty
+            ~dec_absent:[]
+            ~enc_omit:(fun l -> l = [])
        |> Jsont.Object.mem "Sort" sort_jsont ~enc:(fun t -> t.sort)
        |> Jsont.Object.finish)
   in
@@ -301,7 +303,7 @@ let jsont =
 #### Json output:
 
 ```ocaml
-# Jsont_bytesrw.encode_string (Jsont.list u_jsont)
+# Jsont_bytesrw.encode_string jsont
        {
          name = "Alice";
          maybe_parent = Some {
@@ -361,7 +363,7 @@ type v =
   | S of sort [@doc "Doc for S"]
   | R of { name : string [@doc "Doc for R.name"] }
     [@kind "Kind for R"] [@doc "Doc for R"]
-  [@@doc "Doc for v"] [@@type_key "t"] [@@deriving jsont]
+[@@doc "Doc for v"] [@@type_key "t"] [@@wrap_key "w"] [@@deriving jsont]
 ```
 
 <details><summary>See generated code</summary>
@@ -378,23 +380,23 @@ let v_jsont =
       ~dec:Fun.id
   and jsont__S =
     Jsont.Object.Case.map "S"
-      (Jsont.Object.map ~kind:"S" ~doc:"Doc for S" Fun.id
-      |> Jsont.Object.mem "v" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id
+      (Jsont.Object.map ~kind:"S" ~doc:"Doc for S" Stdlib.Fun.id
+      |> Jsont.Object.mem "w" ~doc:"Wrapper for S" sort_jsont ~enc:Fun.id
       |> Jsont.Object.finish)
-      ~dec:(fun arg -> S arg)
+      ~dec:(fun arg0 -> S arg0)
   and jsont__A =
     Jsont.Object.Case.map "Id"
-      (Jsont.Object.map ~kind:"One of A kind" Fun.id
-      |> Jsont.Object.mem "v" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id
+      (Jsont.Object.map ~kind:"One of A kind" Stdlib.Fun.id
+      |> Jsont.Object.mem "w" ~doc:"Wrapper for A" Jsont.int ~enc:Fun.id
       |> Jsont.Object.finish)
-      ~dec:(fun arg -> A arg)
+      ~dec:(fun arg0 -> A arg0)
   in
   Jsont.Object.map ~kind:"V" ~doc:"Doc for v" Fun.id
   |> Jsont.Object.case_mem "t" ~doc:"Cases for V" Jsont.string ~enc:Fun.id
        ~enc_case:(function
          | R t -> Jsont.Object.Case.value jsont__R (R t)
-         | S t -> Jsont.Object.Case.value jsont__S t
-         | A t -> Jsont.Object.Case.value jsont__A t)
+         | S arg0 -> Jsont.Object.Case.value jsont__S arg0
+         | A arg0 -> Jsont.Object.Case.value jsont__A arg0)
        [
          Jsont.Object.Case.make jsont__R;
          Jsont.Object.Case.make jsont__S;
