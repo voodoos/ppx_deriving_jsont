@@ -398,6 +398,9 @@ and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
           let loc = real_name.loc in
           let name = Option.value ~default:real_name.txt user_name in
           let arg =
+            (* TODO this was meant to carry enought information about the
+               arguments for the rest of the function, but it's not the case
+               anymore. Refactor needed. *)
             match args with
             | Pcstr_tuple [] -> `No_arg
             | Pcstr_tuple [ first ] ->
@@ -495,15 +498,12 @@ and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
     let enc_case =
       pexp_function_cases ~loc
       @@ List.map
-           (fun (binding_name, real_name, args, arg, _) ->
+           (fun (binding_name, real_name, args, _arg, _) ->
              let loc = real_name.loc in
              let pat, var =
-               match (args, arg) with
-               | _, `No_arg -> (None, eunit ~loc)
-               | _, `Inline_record _ ->
-                   ( Some (pvar ~loc "t"),
-                     econstruct ~loc real_name (Some (evar ~loc "t")) )
-               | Pcstr_tuple (_ :: _ as cs), _ ->
+               match args with
+               | Pcstr_tuple [] -> (None, eunit ~loc)
+               | Pcstr_tuple cs ->
                    let arg_name = "arg" in
                    let pat =
                      ppat_tuple ~loc
@@ -518,7 +518,9 @@ and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
                           cs)
                    in
                    (Some pat, exp)
-               | _ -> (Some (pvar ~loc "t"), evar ~loc "t")
+               | Pcstr_record _ ->
+                   ( Some (pvar ~loc "t"),
+                     econstruct ~loc real_name (Some (evar ~loc "t")) )
              in
              let rhs =
                [%expr
