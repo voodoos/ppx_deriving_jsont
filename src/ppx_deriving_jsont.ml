@@ -212,8 +212,12 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
                     Some { real_name; user_name; kind; doc; nowrap; args })
               rfs
           in
-          of_variant_type ~loc ~kind ?doc ?type_key ?wrap_key ~current_decls
-            ~poly:true constrs
+          let expr =
+            of_variant_type core_type ~loc ~kind ?doc ?type_key ?wrap_key
+              ~current_decls ~poly:true constrs
+          in
+
+          expr
       | { ptyp_desc = Ptyp_tuple cts; _ } ->
           let open Ast_builder.Default in
           let kind =
@@ -353,8 +357,9 @@ and of_tuple ~current_decls ~loc ?kind ?doc cts =
     let dec_finish = [%e dec_finish] in
     [%e jsont_array_map] |> Jsont.Array.array]
 
-and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
-    ~current_decls ?(poly = false) (constrs : generic_constructor list) =
+and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
+    ?(wrap_key = "v") ~current_decls ?(poly = false)
+    (constrs : generic_constructor list) =
   let open Ast_builder.Default in
   let lid name = { name with txt = Lident name.txt } in
   let econstruct name =
@@ -380,7 +385,11 @@ and of_variant_type ~loc ~kind ?doc ?(type_key = "type") ?(wrap_key = "v")
           [%expr [%e estring ~loc name], [%e construct]])
         constrs
     in
-    jsont_enum ~loc ~kind ?doc (elist ~loc all_constrs)
+    let expr = jsont_enum ~loc ~kind ?doc (elist ~loc all_constrs) in
+    (* The [Jsont.enum]s produced when all constrs have no argument have
+               a weak type so they need a constraint to be exported. *)
+    Ast_builder.Default.pexp_constraint ~loc expr
+      [%type: [%t { core_type with ptyp_attributes = [] }] Jsont.t]
   in
   let as_object_cases constrs =
     let constrs =
@@ -696,8 +705,13 @@ let of_type_declaration ~current_decls
         in
         let type_key = Attribute.get Attributes.td_type_key infos.ast in
         let wrap_key = Attribute.get Attributes.td_wrap_key infos.ast in
-        of_variant_type ~loc ~kind ?doc ?type_key ?wrap_key ~current_decls
-          constrs
+        let core_type =
+          Ast_builder.Default.ptyp_constr ~loc
+            { infos.ast.ptype_name with txt = Lident infos.ast.ptype_name.txt }
+            (List.map fst infos.ast.ptype_params)
+        in
+        of_variant_type core_type ~loc ~kind ?doc ?type_key ?wrap_key
+          ~current_decls constrs
     | Ptype_record labels ->
         let expr = of_record_type ~current_decls ~loc ~kind ?doc labels in
         expr

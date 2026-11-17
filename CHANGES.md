@@ -1,3 +1,9 @@
+0.3
+===
+
+- Fix weak types issues when deriving empty variant types or polymorphic variant
+  types with no parameters. (fixes #1, reported by @mneumann)
+
 0.2.1
 =====
 

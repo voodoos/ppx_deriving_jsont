@@ -1,0 +1,5 @@
+(library
+ (name tests_lib)
+ (libraries jsont)
+ (preprocess
+  (pps ppx_deriving_jsont)))

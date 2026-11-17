@@ -1,6 +1,6 @@
 (executable
  (name tests)
- (libraries jsont.bytesrw)
+ (libraries jsont.bytesrw tests_lib)
  (preprocess
   (pps ppx_deriving_jsont)))
 
