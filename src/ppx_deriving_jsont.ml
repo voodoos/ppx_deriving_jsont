@@ -212,8 +212,17 @@ let rec of_core_type ?kind ?doc ~current_decls (core_type : Parsetree.core_type)
                     Some { real_name; user_name; kind; doc; nowrap; args })
               rfs
           in
-          of_variant_type ~loc ~kind ?doc ?type_key ?wrap_key ~current_decls
-            ~poly:true constrs
+          let expr =
+            of_variant_type ~loc ~kind ?doc ?type_key ?wrap_key ~current_decls
+              ~poly:true constrs
+          in
+          if List.for_all (fun { args; _ } -> args = Pcstr_tuple []) constrs
+          then
+            (* The [Jsont.enum]s produced when all constrs have no argument have
+               a weak type so they need a constraint to be exported. *)
+            Ast_builder.Default.pexp_constraint ~loc expr
+              [%type: [%t { core_type with ptyp_attributes = [] }] Jsont.t]
+          else expr
       | { ptyp_desc = Ptyp_tuple cts; _ } ->
           let open Ast_builder.Default in
           let kind =
