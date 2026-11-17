@@ -90,3 +90,8 @@ type tuple_issue = int * int [@@deriving jsont]
 
 let v : tuple_issue = (36, 42)
 let () = assert (v = print_and_recode tuple_issue_jsont v)
+
+type inline_tuple_variant = Foo of int * int [@@deriving jsont]
+
+let v : inline_tuple_variant = Foo (36, 42)
+let () = assert (v = print_and_recode inline_tuple_variant_jsont v)

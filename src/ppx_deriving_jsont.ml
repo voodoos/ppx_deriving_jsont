@@ -398,6 +398,9 @@ and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
           let loc = real_name.loc in
           let name = Option.value ~default:real_name.txt user_name in
           let arg =
+            (* TODO this was meant to carry enought information about the
+               arguments for the rest of the function, but it's not the case
+               anymore. Refactor needed. *)
             match args with
             | Pcstr_tuple [] -> `No_arg
             | Pcstr_tuple [ first ] ->
@@ -450,15 +453,26 @@ and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
           in
           let mk_fun =
             (* fun arg -> Circle arg *)
-            let pat, var =
-              if arg = `No_arg then (punit ~loc, None)
-              else
+            match args with
+            | Pcstr_tuple [] ->
+                let construct = econstruct ~loc real_name None in
+                pexp_fun ~loc Nolabel None (punit ~loc) construct
+            | Pcstr_record _ -> [%expr Fun.id]
+            | Pcstr_tuple cs ->
                 let arg_name = "arg" in
-                (pvar ~loc arg_name, Some (evar ~loc arg_name))
-            in
-            match arg with
-            | `Inline_record _ -> [%expr Fun.id]
-            | _ ->
+                let pat =
+                  ppat_tuple ~loc
+                    (List.mapi
+                       (fun i _ -> pvar ~loc (arg_name ^ string_of_int i))
+                       cs)
+                in
+                let exp =
+                  pexp_tuple ~loc
+                    (List.mapi
+                       (fun i _ -> evar ~loc (arg_name ^ string_of_int i))
+                       cs)
+                in
+                let pat, var = (pat, Some exp) in
                 let construct = econstruct ~loc real_name var in
                 pexp_fun ~loc Nolabel None pat construct
           in
@@ -469,12 +483,12 @@ and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
               Jsont.Object.Case.map [%e name] [%e wrapped_arg] ~dec:[%e mk_fun]]
           in
           let binding_name = "jsont__" ^ real_name.txt in
-          (binding_name, real_name, arg, result) :: acc)
+          (binding_name, real_name, args, arg, result) :: acc)
         [] constrs
     in
     let bindings, cases =
       List.map
-        (fun (binding_name, real_name, _, expr) ->
+        (fun (binding_name, real_name, _, _, expr) ->
           let loc = real_name.loc in
           ( value_binding ~loc ~pat:(pvar ~loc binding_name) ~expr,
             [%expr Jsont.Object.Case.make [%e evar ~loc binding_name]] ))
@@ -484,21 +498,33 @@ and of_variant_type core_type ~loc ~kind ?doc ?(type_key = "type")
     let enc_case =
       pexp_function_cases ~loc
       @@ List.map
-           (fun (binding_name, real_name, arg, _) ->
+           (fun (binding_name, real_name, args, _arg, _) ->
              let loc = real_name.loc in
              let pat, var =
-               if arg = `No_arg then (None, eunit ~loc)
-               else (Some (pvar ~loc "t"), evar ~loc "t")
-             in
-             let wrapped_var =
-               match arg with
-               | `Inline_record _ -> econstruct ~loc real_name (Some var)
-               | _ -> var
+               match args with
+               | Pcstr_tuple [] -> (None, eunit ~loc)
+               | Pcstr_tuple cs ->
+                   let arg_name = "arg" in
+                   let pat =
+                     ppat_tuple ~loc
+                       (List.mapi
+                          (fun i _ -> pvar ~loc (arg_name ^ string_of_int i))
+                          cs)
+                   in
+                   let exp =
+                     pexp_tuple ~loc
+                       (List.mapi
+                          (fun i _ -> evar ~loc (arg_name ^ string_of_int i))
+                          cs)
+                   in
+                   (Some pat, exp)
+               | Pcstr_record _ ->
+                   ( Some (pvar ~loc "t"),
+                     econstruct ~loc real_name (Some (evar ~loc "t")) )
              in
              let rhs =
                [%expr
-                 Jsont.Object.Case.value [%e evar ~loc binding_name]
-                   [%e wrapped_var]]
+                 Jsont.Object.Case.value [%e evar ~loc binding_name] [%e var]]
              in
              let lhs = pconstruct ~loc real_name pat in
              case ~lhs ~guard:None ~rhs)
