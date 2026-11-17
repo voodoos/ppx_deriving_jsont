@@ -23,7 +23,8 @@ type sort = A | X [@key "B"] | C
 let _ = fun (_ : sort) -> ()
 
 let sort_jsont =
-  Jsont.enum ~doc:"A doc of sorts" ~kind:"Sort" [ ("A", A); ("B", X); ("C", C) ]
+  (Jsont.enum ~doc:"A doc of sorts" ~kind:"Sort"
+     [("A", A); ("B", X); ("C", C)] : sort Jsont.t)
 
 let _ = sort_jsont
 
